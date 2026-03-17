@@ -1,0 +1,23 @@
+scripts/fetch-busybox.sh
+  84a1c200019b0dad 3,11-12,24,27,34,43-44,46,49,51,56-66
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "7996df3c85e4edc3addea6baaf42a402969149a0",
+  "prompts": {
+    "84a1c200019b0dad": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0bc70590-9a77-49f4-b94f-35ec0e19958a",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 33,
+      "total_deletions": 19,
+      "accepted_lines": 28,
+      "overriden_lines": 0
+    }
+  }
+}
