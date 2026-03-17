@@ -1,0 +1,45 @@
+.github/workflows/build-lkl.yml
+  cfdb71822f577d48 41-43,53,75-77,89-93
+.ci/common.sh
+  cfdb71822f577d48 1-49
+.ci/package-lkl.sh
+  cfdb71822f577d48 1-37
+.ci/install-deps.sh
+  cfdb71822f577d48 1-77
+scripts/aspell-pws
+  cfdb71822f577d48 10,32-33,66,68,92,120
+.ci/check-format.sh
+  cfdb71822f577d48 16,59
+.github/workflows/build-kbox.yml
+  cfdb71822f577d48 10-12,21-22,38,52,61,63-64,69-71,92,120,129,131-132,137-139
+.ci/check-newline.sh
+  cfdb71822f577d48 9-12,14,17
+scripts/pre-commit.hook
+  cfdb71822f577d48 86-88,93-95
+.ci/build-lkl.sh
+  cfdb71822f577d48 1-9,11-33
+scripts/commit-msg.hook
+  cfdb71822f577d48 570,573
+.ci/configure-lkl.sh
+  cfdb71822f577d48 1-41
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "87ee1e541466f7cea6294c6118e94e3ce244a12c",
+  "prompts": {
+    "cfdb71822f577d48": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "34bbe2c1-30c9-42e9-abef-7209ee272ed5",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 366,
+      "total_deletions": 157,
+      "accepted_lines": 741,
+      "overriden_lines": 0
+    }
+  }
+}
