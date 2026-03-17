@@ -1,0 +1,31 @@
+.ci/check-newline.sh
+  cfdb71822f577d48 14
+.ci/install-deps.sh
+  cfdb71822f577d48 13-14,22,24,45-61,63-75
+.ci/package-lkl.sh
+  cfdb71822f577d48 24,32
+.ci/common.sh
+  cfdb71822f577d48 4,23-24,28-29,33-34,40-41,45,47
+scripts/common.sh
+  cfdb71822f577d48 9-21,25-29,34-39,43-54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "1034d4e57f68996a4df625a56a4ba4b2ba746ad3",
+  "prompts": {
+    "cfdb71822f577d48": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "34bbe2c1-30c9-42e9-abef-7209ee272ed5",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 366,
+      "total_deletions": 157,
+      "accepted_lines": 741,
+      "overriden_lines": 0
+    }
+  }
+}
