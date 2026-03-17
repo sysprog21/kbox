@@ -1,0 +1,25 @@
+scripts/commit-msg.hook
+  cfdb71822f577d48 560,563
+scripts/aspell-pws
+  cfdb71822f577d48 10,32-33,66,68,92,120
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "c3e58033ce2787b046a67b19da7065423d826139",
+  "prompts": {
+    "cfdb71822f577d48": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "34bbe2c1-30c9-42e9-abef-7209ee272ed5",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 9,
+      "total_deletions": 3,
+      "accepted_lines": 9,
+      "overriden_lines": 0
+    }
+  }
+}
