@@ -1,0 +1,25 @@
+.ci/package-lkl.sh
+  41a885d7498c76e7 19
+.ci/build-lkl.sh
+  41a885d7498c76e7 39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "71f64b4f0f8b7df628e08f3fb5fa2af6e07b08d1",
+  "prompts": {
+    "41a885d7498c76e7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e276a1b1-30ef-4e95-9638-95c1e7848c6d",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 2,
+      "total_deletions": 2,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    }
+  }
+}
