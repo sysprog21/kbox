@@ -1,0 +1,29 @@
+include/kbox/syscall-nr.h
+  169af4f9570cd389 85
+scripts/pre-commit.hook
+  169af4f9570cd389 58-62
+src/syscall-nr.c
+  169af4f9570cd389 186,341
+src/seccomp-dispatch.c
+  169af4f9570cd389 51-100,273,336,3575,3584,3605,3660-3662,4032
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.15",
+  "base_commit_sha": "f4a4da8a90079923f04db200cf82c7fd59a2ec65",
+  "prompts": {
+    "169af4f9570cd389": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4cbca275-791d-41c3-8501-236dd9f0740c",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 70,
+      "total_deletions": 9,
+      "accepted_lines": 68,
+      "overriden_lines": 0
+    }
+  }
+}
