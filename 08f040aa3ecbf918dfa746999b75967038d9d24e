@@ -1,0 +1,27 @@
+scripts/aspell-pws
+  84a1c200019b0dad 138,140-143,146-148
+.ci/configure-lkl.sh
+  84a1c200019b0dad 23-27
+.github/workflows/build-kbox.yml
+  84a1c200019b0dad 59,124
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "08f040aa3ecbf918dfa746999b75967038d9d24e",
+  "prompts": {
+    "84a1c200019b0dad": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0bc70590-9a77-49f4-b94f-35ec0e19958a",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 15,
+      "total_deletions": 4,
+      "accepted_lines": 15,
+      "overriden_lines": 0
+    }
+  }
+}
