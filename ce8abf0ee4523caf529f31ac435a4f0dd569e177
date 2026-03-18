@@ -1,0 +1,27 @@
+.github/workflows/nightly-lkl.yml
+  169af4f9570cd389 94
+.ci/build-lkl.sh
+  169af4f9570cd389 55
+.github/workflows/build-lkl.yml
+  169af4f9570cd389 70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.15",
+  "base_commit_sha": "ce8abf0ee4523caf529f31ac435a4f0dd569e177",
+  "prompts": {
+    "169af4f9570cd389": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4cbca275-791d-41c3-8501-236dd9f0740c",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 5,
+      "total_deletions": 7,
+      "accepted_lines": 3,
+      "overriden_lines": 0
+    }
+  }
+}
