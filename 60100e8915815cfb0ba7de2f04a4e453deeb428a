@@ -1,0 +1,27 @@
+.github/workflows/build-lkl.yml
+  84a1c200019b0dad 22-23,62-66,72-76,88,90,92-93
+.ci/build-lkl.sh
+  84a1c200019b0dad 6-11,18,22,29-31,33,37-44,47,49,52-55
+scripts/aspell-pws
+  84a1c200019b0dad 138,140,145,151
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "60100e8915815cfb0ba7de2f04a4e453deeb428a",
+  "prompts": {
+    "84a1c200019b0dad": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0bc70590-9a77-49f4-b94f-35ec0e19958a",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 51,
+      "total_deletions": 22,
+      "accepted_lines": 46,
+      "overriden_lines": 1
+    }
+  }
+}
