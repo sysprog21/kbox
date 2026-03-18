@@ -1,0 +1,33 @@
+.github/workflows/build-kbox.yml
+  169af4f9570cd389 6-10,13-17,20-22,28,45,59,68-69,71,86,103-108,111,120,129-130,132
+Makefile
+  169af4f9570cd389 122-124,126-131,133
+.github/actions/provision-lkl/action.yml
+  169af4f9570cd389 1-50
+.github/workflows/nightly-lkl.yml
+  169af4f9570cd389 1-227
+scripts/fetch-lkl.sh
+  169af4f9570cd389 9-12,28-45,47,51-52,56-67,76-89,91,99,109,112,128-129,150-152,162
+.github/workflows/build-lkl.yml
+  169af4f9570cd389 20-23,34,36,67,69-70,78-82,121
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.12",
+  "base_commit_sha": "7d22e66d7938f94248702385f64484d13a21a6a0",
+  "prompts": {
+    "169af4f9570cd389": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4cbca275-791d-41c3-8501-236dd9f0740c",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 445,
+      "total_deletions": 116,
+      "accepted_lines": 396,
+      "overriden_lines": 0
+    }
+  }
+}
