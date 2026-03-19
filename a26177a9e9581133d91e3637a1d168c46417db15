@@ -1,0 +1,23 @@
+scripts/commit-msg.hook
+  c527b354ad8feb90 165-177
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.15",
+  "base_commit_sha": "a26177a9e9581133d91e3637a1d168c46417db15",
+  "prompts": {
+    "c527b354ad8feb90": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c5784ce7-ad6a-440a-9f82-5c0c2972ecd3",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 13,
+      "total_deletions": 0,
+      "accepted_lines": 13,
+      "overriden_lines": 0
+    }
+  }
+}
