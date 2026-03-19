@@ -1,0 +1,41 @@
+docs/lkl-threading-modes.md
+  66833f035bbadb38 1-97
+docs/lkl-api-surface.md
+  66833f035bbadb38 1-124
+scripts/fetch-lkl.sh
+  66833f035bbadb38 3,6-8,10-12,16-20,22-31,35-36,38-39,51,55,79-81,83-84,87,89-90,97,99,101-102,104-110
+scripts/run-stress.sh
+  66833f035bbadb38 11-16
+.github/workflows/build-lkl.yml
+  66833f035bbadb38 1-270
+scripts/run-tests.sh
+  66833f035bbadb38 12-17
+include/kbox/lkl-wrap.h
+  66833f035bbadb38 11-25
+scripts/lsan-suppressions.txt
+  66833f035bbadb38 1-4
+.github/workflows/build-kbox.yml
+  66833f035bbadb38 1-106
+Makefile
+  66833f035bbadb38 100,102-105,113-116,164-165,169-179
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.15",
+  "base_commit_sha": "ae560aeb8e9872ba6060c0888e0043fb3d029674",
+  "prompts": {
+    "66833f035bbadb38": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "59f4c001-3612-4e40-b76a-acde44e46932",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 7,
+      "accepted_lines": 697,
+      "overriden_lines": 0
+    }
+  }
+}
