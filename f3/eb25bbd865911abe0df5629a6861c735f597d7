@@ -1,0 +1,39 @@
+web/js/polling.js
+  707f0d6dfdc3cbf8 10-15,26
+web/js/charts.js
+  707f0d6dfdc3cbf8 142,147-148
+web/js/state.js
+  707f0d6dfdc3cbf8 40-41
+src/web-telemetry.c
+  707f0d6dfdc3cbf8 339,341-343,345,348-356,360,363-364
+scripts/gen-web-assets.sh
+  707f0d6dfdc3cbf8 47-48,51
+src/web-server.c
+  707f0d6dfdc3cbf8 739,755,760,765,771,786,792-804
+web/js/controls.js
+  707f0d6dfdc3cbf8 21-22,25-31
+web/js/events.js
+  707f0d6dfdc3cbf8 39-47,49-53,55-56,59-63,66
+src/seccomp-supervisor.c
+  707f0d6dfdc3cbf8 345
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.15",
+  "base_commit_sha": "f3eb25bbd865911abe0df5629a6861c735f597d7",
+  "prompts": {
+    "707f0d6dfdc3cbf8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c9d5b08b-ad72-4d36-aec5-a9509afb9ff0",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 89,
+      "total_deletions": 62,
+      "accepted_lines": 83,
+      "overriden_lines": 0
+    }
+  }
+}
