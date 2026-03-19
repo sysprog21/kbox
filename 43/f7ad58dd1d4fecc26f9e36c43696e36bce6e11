@@ -1,0 +1,37 @@
+.github/workflows/build-kbox.yml
+  66833f035bbadb38 1-116
+scripts/lsan-suppressions.txt
+  66833f035bbadb38 1-4
+docs/lkl-threading-modes.md
+  66833f035bbadb38 1-97
+include/kbox/lkl-wrap.h
+  66833f035bbadb38 11-18
+docs/lkl-api-surface.md
+  66833f035bbadb38 1-124
+scripts/fetch-lkl.sh
+  66833f035bbadb38 3,6-7,10-11,16-20,22-25,27-28,51,55,79-81,83-84,87,89-90,104-110
+.github/workflows/build-lkl.yml
+  66833f035bbadb38 1-266
+Makefile
+  66833f035bbadb38 100,102,110-113,164-171
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.15",
+  "base_commit_sha": "43f7ad58dd1d4fecc26f9e36c43696e36bce6e11",
+  "prompts": {
+    "66833f035bbadb38": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "59f4c001-3612-4e40-b76a-acde44e46932",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 5,
+      "total_deletions": 1,
+      "accepted_lines": 662,
+      "overriden_lines": 0
+    }
+  }
+}
