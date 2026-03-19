@@ -1,0 +1,33 @@
+scripts/run-tests.sh
+  66833f035bbadb38 12-16
+.github/workflows/build-lkl.yml
+  66833f035bbadb38 81-84,158-161
+Makefile
+  66833f035bbadb38 102-105,170,174-177
+scripts/run-stress.sh
+  66833f035bbadb38 11-15
+docs/lkl-api-surface.md
+  66833f035bbadb38 27
+.github/workflows/build-kbox.yml
+  66833f035bbadb38 51-54,67
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.15",
+  "base_commit_sha": "f79c1b3d7b3e234980ffea650fbd5e594117aac0",
+  "prompts": {
+    "66833f035bbadb38": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "59f4c001-3612-4e40-b76a-acde44e46932",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 33,
+      "total_deletions": 16,
+      "accepted_lines": 33,
+      "overriden_lines": 0
+    }
+  }
+}
