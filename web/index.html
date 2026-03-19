@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kbox kernel observatory</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<!-- System overview bar -->
+<header id="overview">
+  <div class="brand">kbox <span class="sub">kernel observatory</span></div>
+  <div class="gauges">
+    <div class="gauge" id="g-syscalls">
+      <svg viewBox="0 0 80 50"><path id="g-syscalls-arc" class="arc"/></svg>
+      <div class="g-val" id="g-syscalls-val">0</div>
+      <div class="g-label">syscalls/s</div>
+    </div>
+    <div class="gauge" id="g-ctx">
+      <svg viewBox="0 0 80 50"><path id="g-ctx-arc" class="arc"/></svg>
+      <div class="g-val" id="g-ctx-val">0</div>
+      <div class="g-label">ctx sw/s</div>
+    </div>
+    <div class="gauge" id="g-mem">
+      <svg viewBox="0 0 80 50"><path id="g-mem-arc" class="arc"/></svg>
+      <div class="g-val" id="g-mem-val">0%</div>
+      <div class="g-label">memory</div>
+    </div>
+    <div class="gauge" id="g-fd">
+      <svg viewBox="0 0 80 50"><path id="g-fd-arc" class="arc"/></svg>
+      <div class="g-val" id="g-fd-val">0</div>
+      <div class="g-label">FDs</div>
+    </div>
+  </div>
+  <div class="meta">
+    <span id="uptime">--</span> |
+    <span id="guest">--</span> |
+    <button id="btn-pause" title="Pause telemetry">Pause</button>
+    <button id="btn-theme" title="Toggle theme">Theme</button>
+  </div>
+</header>
+
+<!-- Dashboard panels -->
+<main class="grid">
+  <!-- Syscall activity (wide) -->
+  <section class="panel wide" id="p-syscall">
+    <h2>Syscall Activity</h2>
+    <canvas id="c-syscall" height="200"></canvas>
+    <div class="panel-stats">
+      <span>Avg: <b id="lat-avg">--</b></span>
+      <span>Max: <b id="lat-max">--</b></span>
+      <span>Total: <b id="sc-total">0</b></span>
+    </div>
+  </section>
+
+  <!-- Memory -->
+  <section class="panel" id="p-memory">
+    <h2>Memory</h2>
+    <canvas id="c-memory" height="180"></canvas>
+  </section>
+
+  <!-- Scheduler -->
+  <section class="panel" id="p-scheduler">
+    <h2>Scheduler</h2>
+    <canvas id="c-scheduler" height="180"></canvas>
+  </section>
+
+  <!-- Softirqs -->
+  <section class="panel" id="p-softirq">
+    <h2>Interrupts &amp; Softirqs</h2>
+    <canvas id="c-softirq" height="180"></canvas>
+  </section>
+
+  <!-- Block I/O (placeholder) -->
+  <section class="panel" id="p-blockio">
+    <h2>Block I/O</h2>
+    <div class="placeholder">Data source pending (Phase 2+)</div>
+  </section>
+
+  <!-- Event feed (wide) -->
+  <section class="panel wide" id="p-events">
+    <h2>Event Feed
+      <span class="event-controls">
+        <label><input type="checkbox" id="f-syscall" checked> syscall</label>
+        <label><input type="checkbox" id="f-process" checked> process</label>
+        <label><input type="checkbox" id="f-errors"> errors only</label>
+      </span>
+    </h2>
+    <div id="event-feed" class="feed"></div>
+  </section>
+</main>
+
+<script src="/js/chart.umd.min.js"></script>
+<script src="/js/state.js"></script>
+<script src="/js/gauges.js"></script>
+<script src="/js/charts.js"></script>
+<script src="/js/events.js"></script>
+<script src="/js/polling.js"></script>
+<script src="/js/controls.js"></script>
+<script src="/js/main.js"></script>
+</body>
+</html>

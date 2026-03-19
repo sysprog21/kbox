@@ -336,32 +336,24 @@ int kbox_enosys_to_json(const struct kbox_telemetry_counters *c,
 {
     int pos = 0;
     int first = 1;
-    int n;
 
-    n = snprintf(buf, (size_t) bufsz, "{\"enosys_hits\":{");
-    if (n > 0 && n < bufsz)
-        pos = n;
+    pos += snprintf(buf + pos, (size_t) (bufsz - pos), "{\"enosys_hits\":{");
 
-    for (int i = 0; i < 1024 && pos < bufsz - 64; i++) {
+    for (int i = 0; i < 1024; i++) {
         if (c->enosys_hits[i] == 0)
             continue;
-        if (!first) {
-            n = snprintf(buf + pos, (size_t) (bufsz - pos), ",");
-            if (n > 0 && pos + n < bufsz)
-                pos += n;
-        }
-        n = snprintf(buf + pos, (size_t) (bufsz - pos), "\"%d\":%" PRIu64, i,
-                     c->enosys_hits[i]);
-        if (n > 0 && pos + n < bufsz)
-            pos += n;
+        if (!first)
+            pos += snprintf(buf + pos, (size_t) (bufsz - pos), ",");
+        pos += snprintf(buf + pos, (size_t) (bufsz - pos), "\"%d\":%" PRIu64, i,
+                        c->enosys_hits[i]);
         first = 0;
+        if (pos >= bufsz - 64)
+            break;
     }
 
-    n = snprintf(buf + pos, (size_t) (bufsz - pos),
-                 "},\"overflow\":%" PRIu64 ",\"overflow_last_nr\":%d}",
-                 c->enosys_overflow, c->enosys_overflow_last_nr);
-    if (n > 0 && pos + n < bufsz)
-        pos += n;
+    pos += snprintf(buf + pos, (size_t) (bufsz - pos),
+                    "},\"overflow\":%" PRIu64 ",\"overflow_last_nr\":%d}",
+                    c->enosys_overflow, c->enosys_overflow_last_nr);
     return pos;
 }
 

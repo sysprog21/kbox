@@ -408,34 +408,6 @@ static int handle_request(struct kbox_web_ctx *ctx,
         return (rc == 0) ? 1 : 0; /* keep alive on success */
     }
 
-    /* GET /api/history -- historical snapshots from ring buffer */
-    if (strcmp(req->path, "/api/history") == 0) {
-        if (strcmp(req->method, "GET") != 0)
-            return send_405(fd), 0;
-
-        pthread_mutex_lock(&ctx->lock);
-        int count = ctx->snap_ring_count;
-        int head = ctx->snap_ring_head;
-
-        /* Build JSON array of snapshots (oldest first) */
-        int pos = 0;
-        pos += snprintf(buf + pos, sizeof(buf) - (size_t) pos,
-                        "{\"count\":%d,\"snapshots\":[", count);
-
-        for (int i = 0; i < count && pos < (int) sizeof(buf) - 2048; i++) {
-            int idx = (head - count + i + SNAP_RING_SIZE) % SNAP_RING_SIZE;
-            if (i > 0)
-                buf[pos++] = ',';
-            pos += kbox_snapshot_to_json(&ctx->snap_ring[idx], buf + pos,
-                                         (int) sizeof(buf) - pos);
-        }
-        pos += snprintf(buf + pos, sizeof(buf) - (size_t) pos, "]}");
-        pthread_mutex_unlock(&ctx->lock);
-
-        send_json(fd, buf, pos);
-        return 0;
-    }
-
     /* GET /stats */
     if (strcmp(req->path, "/stats") == 0) {
         if (strcmp(req->method, "GET") != 0)
@@ -736,7 +708,8 @@ struct kbox_web_ctx *kbox_web_init(const struct kbox_web_config *cfg,
     ctx->listen_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (ctx->listen_fd < 0) {
         fprintf(stderr, "web: socket: %s\n", strerror(errno));
-        goto fail;
+        free(ctx);
+        return NULL;
     }
 
     int opt = 1;
@@ -752,58 +725,58 @@ struct kbox_web_ctx *kbox_web_init(const struct kbox_web_config *cfg,
     if (bind(ctx->listen_fd, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
         fprintf(stderr, "web: bind(%s:%d): %s\n", ctx->cfg.bind, ctx->cfg.port,
                 strerror(errno));
-        goto fail;
+        close(ctx->listen_fd);
+        free(ctx);
+        return NULL;
     }
 
     if (listen(ctx->listen_fd, 16) < 0) {
         fprintf(stderr, "web: listen: %s\n", strerror(errno));
-        goto fail;
+        close(ctx->listen_fd);
+        free(ctx);
+        return NULL;
     }
 
     /* Create epoll + shutdown pipe */
     if (pipe(ctx->shutdown_pipe) < 0) {
-        goto fail;
+        close(ctx->listen_fd);
+        free(ctx);
+        return NULL;
     }
     set_nonblocking(ctx->shutdown_pipe[0]);
 
     ctx->epoll_fd = epoll_create1(0);
     if (ctx->epoll_fd < 0) {
-        goto fail;
+        close(ctx->listen_fd);
+        close(ctx->shutdown_pipe[0]);
+        close(ctx->shutdown_pipe[1]);
+        free(ctx);
+        return NULL;
     }
 
     struct epoll_event ev;
     ev.events = EPOLLIN;
     ev.data.fd = ctx->listen_fd;
-    if (epoll_ctl(ctx->epoll_fd, EPOLL_CTL_ADD, ctx->listen_fd, &ev) < 0)
-        goto fail;
+    epoll_ctl(ctx->epoll_fd, EPOLL_CTL_ADD, ctx->listen_fd, &ev);
 
     ev.data.fd = ctx->shutdown_pipe[0];
-    if (epoll_ctl(ctx->epoll_fd, EPOLL_CTL_ADD, ctx->shutdown_pipe[0], &ev) < 0)
-        goto fail;
+    epoll_ctl(ctx->epoll_fd, EPOLL_CTL_ADD, ctx->shutdown_pipe[0], &ev);
 
     /* Start server thread */
     ctx->server_running = 1;
     if (pthread_create(&ctx->server_thread, NULL, server_thread_fn, ctx) != 0) {
         fprintf(stderr, "web: pthread_create: %s\n", strerror(errno));
-        goto fail;
+        close(ctx->listen_fd);
+        close(ctx->epoll_fd);
+        close(ctx->shutdown_pipe[0]);
+        close(ctx->shutdown_pipe[1]);
+        free(ctx);
+        return NULL;
     }
 
     fprintf(stderr, "kbox: web observatory at http://%s:%d/\n", ctx->cfg.bind,
             ctx->cfg.port);
     return ctx;
-
-fail:
-    if (ctx->listen_fd >= 0)
-        close(ctx->listen_fd);
-    if (ctx->epoll_fd >= 0)
-        close(ctx->epoll_fd);
-    if (ctx->shutdown_pipe[0] >= 0)
-        close(ctx->shutdown_pipe[0]);
-    if (ctx->shutdown_pipe[1] >= 0)
-        close(ctx->shutdown_pipe[1]);
-    pthread_mutex_destroy(&ctx->lock);
-    free(ctx);
-    return NULL;
 }
 
 void kbox_web_shutdown(struct kbox_web_ctx *ctx)
