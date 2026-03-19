@@ -1,0 +1,25 @@
+scripts/prepare-commit-msg.hook
+  c527b354ad8feb90 3,5-6,8-9,13-14,17-20,24-44
+scripts/commit-msg.hook
+  c527b354ad8feb90 4,6-8,11-47,49,51-53,56-61,63-67,69-71,74-130,133-140,143-153,155-179,182-186,189-190,194-210,212-259
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.15",
+  "base_commit_sha": "f2111a4a177d70bfeab8f1b2957b011dcf90d702",
+  "prompts": {
+    "c527b354ad8feb90": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c5784ce7-ad6a-440a-9f82-5c0c2972ecd3",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 267,
+      "total_deletions": 85,
+      "accepted_lines": 264,
+      "overriden_lines": 0
+    }
+  }
+}
