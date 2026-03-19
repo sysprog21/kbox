@@ -1,0 +1,106 @@
+# Build kbox and run full test suite.
+# Zero root required -- everything runs as an unprivileged user.
+#
+# Parallelism:
+#   unit-tests   -- no LKL, no rootfs, runs immediately
+#   build-kbox   -- fetches LKL, compiles kbox + guest/stress bins, builds rootfs
+#   integration  -- needs build-kbox artifacts, runs integration + stress tests
+#
+# unit-tests and build-kbox run in parallel. integration waits for build-kbox.
+name: Build and Test
+
+on:
+  push:
+    branches: [main, infrastructure]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ---- Unit tests: no LKL dependency, fast ----
+  unit-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential
+
+      - name: Run unit tests (ASAN/UBSAN)
+        run: make check-unit
+
+  # ---- Build kbox + prepare rootfs ----
+  build-kbox:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential e2fsprogs
+
+      - name: Fetch prebuilt LKL
+        run: ./scripts/fetch-lkl.sh
+
+      - name: Cache rootfs
+        id: cache-rootfs
+        uses: actions/cache@v5
+        with:
+          path: |
+            alpine.ext4
+            deps/
+          key: rootfs-${{ hashFiles('scripts/alpine-sha256.txt', 'scripts/mkrootfs.sh', 'tests/guest/*.c', 'tests/stress/*.c', 'Makefile') }}
+
+      - name: Build kbox (debug + ASAN/UBSAN)
+        run: make -j$(nproc)
+
+      - name: Build guest and stress binaries
+        run: make guest-bins stress-bins
+
+      - name: Build rootfs image
+        if: steps.cache-rootfs.outputs.cache-hit != 'true'
+        run: make rootfs
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: kbox-build
+          retention-days: 1
+          path: |
+            kbox
+            alpine.ext4
+            tests/guest/*-test
+            tests/stress/*
+            !tests/stress/*.c
+            scripts/
+
+  # ---- Integration + stress tests: needs kbox binary + rootfs ----
+  integration-tests:
+    needs: build-kbox
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: kbox-build
+
+      - name: Restore permissions
+        run: |
+          chmod +x kbox
+          chmod +x tests/guest/*-test 2>/dev/null || true
+          chmod +x tests/stress/* 2>/dev/null || true
+          chmod +x scripts/*.sh
+
+      - name: Integration tests
+        run: ./scripts/run-tests.sh ./kbox alpine.ext4
+
+      - name: Stress tests
+        run: ./scripts/run-stress.sh ./kbox alpine.ext4
+        continue-on-error: true

@@ -1,0 +1,4 @@
+# LSAN suppressions for known LKL leaks.
+# LKL's posix-host.c leaks semaphores on shutdown.
+leak:posix-host
+leak:lkl_host_ops

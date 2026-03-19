@@ -1,0 +1,270 @@
+# Build prebuilt liblkl.a and publish to lkl-nightly release.
+#
+# Schedule: nightly at 03:00 UTC. Skips build if upstream LKL HEAD
+# has not changed since the last successful publish.
+#
+# The lkl-nightly release on sysprog21/kbox always contains exactly
+# one x86_64 and one aarch64 tarball (the latest build).
+name: Build LKL (nightly)
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Force rebuild even if upstream is unchanged'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+env:
+  LKL_UPSTREAM: lkl/linux
+  KBOX_REPO: sysprog21/kbox
+  NIGHTLY_TAG: lkl-nightly
+
+jobs:
+  # ---- Check whether upstream LKL has new commits ----
+  check-upstream:
+    runs-on: ubuntu-24.04
+    outputs:
+      lkl_commit: ${{ steps.head.outputs.commit }}
+      needs_build: ${{ steps.compare.outputs.needs_build }}
+    steps:
+      - name: Get upstream LKL HEAD
+        id: head
+        run: |
+          COMMIT=$(git ls-remote "https://github.com/${{ env.LKL_UPSTREAM }}.git" HEAD | awk '{print $1}')
+          echo "commit=${COMMIT}" >> "$GITHUB_OUTPUT"
+          echo "Upstream LKL HEAD: ${COMMIT}"
+
+      - name: Compare with last published build
+        id: compare
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          FORCE="${{ inputs.force || 'false' }}"
+          if [ "$FORCE" = "true" ]; then
+            echo "needs_build=true" >> "$GITHUB_OUTPUT"
+            echo "Forced rebuild requested."
+            exit 0
+          fi
+
+          # Fetch BUILD_INFO from existing nightly release.
+          LAST_COMMIT=$(gh release view "${{ env.NIGHTLY_TAG }}" \
+            --repo "${{ env.KBOX_REPO }}" \
+            --json body --jq '.body' 2>/dev/null \
+            | grep -oP 'commit=\K[0-9a-f]+' | head -1) || LAST_COMMIT=""
+
+          CURRENT="${{ steps.head.outputs.commit }}"
+          if [ "$LAST_COMMIT" = "$CURRENT" ]; then
+            echo "needs_build=false" >> "$GITHUB_OUTPUT"
+            echo "Upstream unchanged (${CURRENT}). Skipping build."
+          else
+            echo "needs_build=true" >> "$GITHUB_OUTPUT"
+            echo "New upstream commit: ${CURRENT} (was: ${LAST_COMMIT:-none})"
+          fi
+
+  # ---- Build x86_64 and aarch64 in parallel ----
+  build-x86_64:
+    needs: check-upstream
+    if: needs.check-upstream.outputs.needs_build == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential flex bison bc libelf-dev
+
+      - name: Clone LKL at pinned commit
+        run: |
+          git clone --no-checkout "https://github.com/${{ env.LKL_UPSTREAM }}.git" lkl
+          cd lkl && git checkout ${{ needs.check-upstream.outputs.lkl_commit }}
+
+      - name: Configure LKL
+        working-directory: lkl
+        run: |
+          make ARCH=lkl defconfig
+          ./scripts/config --enable CONFIG_DEVTMPFS
+          ./scripts/config --enable CONFIG_DEVTMPFS_MOUNT
+          ./scripts/config --enable CONFIG_DEVPTS_FS
+          ./scripts/config --enable CONFIG_DEBUG_INFO
+          ./scripts/config --set-val CONFIG_DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT y
+          ./scripts/config --enable CONFIG_GDB_SCRIPTS
+          ./scripts/config --enable CONFIG_SCHED_DEBUG
+          ./scripts/config --enable CONFIG_PROC_SYSCTL
+          ./scripts/config --enable CONFIG_PRINTK
+          ./scripts/config --enable CONFIG_TRACEPOINTS
+          ./scripts/config --enable CONFIG_FTRACE
+          ./scripts/config --enable CONFIG_DEBUG_FS
+          ./scripts/config --disable CONFIG_MODULES
+          ./scripts/config --disable CONFIG_SOUND
+          ./scripts/config --disable CONFIG_USB_SUPPORT
+          ./scripts/config --disable CONFIG_INPUT
+          ./scripts/config --disable CONFIG_NFS_FS
+          ./scripts/config --disable CONFIG_CIFS
+          make ARCH=lkl olddefconfig
+
+      - name: Build LKL
+        working-directory: lkl
+        run: make ARCH=lkl -j$(nproc)
+
+      - name: Verify symbols
+        working-directory: lkl
+        run: |
+          test -f tools/lkl/liblkl.a || { echo "liblkl.a not found"; exit 1; }
+          for sym in lkl_init lkl_start_kernel lkl_cleanup lkl_syscall \
+                     lkl_strerror lkl_disk_add lkl_mount_dev \
+                     lkl_host_ops lkl_dev_blk_ops; do
+            if ! nm tools/lkl/liblkl.a 2>/dev/null | awk -v s="$sym" \
+                '$3 == s && $2 ~ /^[TtDdBbRr]$/ {found=1} END {exit !found}'; then
+              echo "MISSING symbol: ${sym}"; exit 1
+            fi
+          done
+
+      - name: Package
+        working-directory: lkl
+        run: |
+          mkdir -p pkg
+          cp tools/lkl/liblkl.a pkg/
+          cp tools/lkl/include/lkl.h pkg/ 2>/dev/null || true
+          cp tools/lkl/include/lkl/autoconf.h pkg/ 2>/dev/null || true
+          cp scripts/gdb/vmlinux-gdb.py pkg/ 2>/dev/null || true
+          echo "commit=$(git rev-parse HEAD)" > pkg/BUILD_INFO
+          echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> pkg/BUILD_INFO
+          echo "arch=x86_64" >> pkg/BUILD_INFO
+          cd pkg && sha256sum ./* > sha256sums.txt
+          cd .. && tar czf liblkl-x86_64.tar.gz -C pkg .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: lkl-x86_64
+          path: lkl/liblkl-x86_64.tar.gz
+          retention-days: 3
+
+  build-aarch64:
+    needs: check-upstream
+    if: needs.check-upstream.outputs.needs_build == 'true'
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential flex bison bc libelf-dev
+
+      - name: Clone LKL at pinned commit
+        run: |
+          git clone --no-checkout "https://github.com/${{ env.LKL_UPSTREAM }}.git" lkl
+          cd lkl && git checkout ${{ needs.check-upstream.outputs.lkl_commit }}
+
+      - name: Configure LKL
+        working-directory: lkl
+        run: |
+          make ARCH=lkl defconfig
+          ./scripts/config --enable CONFIG_DEVTMPFS
+          ./scripts/config --enable CONFIG_DEVTMPFS_MOUNT
+          ./scripts/config --enable CONFIG_DEVPTS_FS
+          ./scripts/config --enable CONFIG_DEBUG_INFO
+          ./scripts/config --set-val CONFIG_DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT y
+          ./scripts/config --enable CONFIG_GDB_SCRIPTS
+          ./scripts/config --enable CONFIG_SCHED_DEBUG
+          ./scripts/config --enable CONFIG_PROC_SYSCTL
+          ./scripts/config --enable CONFIG_PRINTK
+          ./scripts/config --enable CONFIG_TRACEPOINTS
+          ./scripts/config --enable CONFIG_FTRACE
+          ./scripts/config --enable CONFIG_DEBUG_FS
+          ./scripts/config --disable CONFIG_MODULES
+          ./scripts/config --disable CONFIG_SOUND
+          ./scripts/config --disable CONFIG_USB_SUPPORT
+          ./scripts/config --disable CONFIG_INPUT
+          ./scripts/config --disable CONFIG_NFS_FS
+          ./scripts/config --disable CONFIG_CIFS
+          make ARCH=lkl olddefconfig
+
+      - name: Build LKL
+        working-directory: lkl
+        run: make ARCH=lkl -j$(nproc)
+
+      - name: Verify symbols
+        working-directory: lkl
+        run: |
+          test -f tools/lkl/liblkl.a || { echo "liblkl.a not found"; exit 1; }
+          for sym in lkl_init lkl_start_kernel lkl_cleanup lkl_syscall \
+                     lkl_strerror lkl_disk_add lkl_mount_dev \
+                     lkl_host_ops lkl_dev_blk_ops; do
+            if ! nm tools/lkl/liblkl.a 2>/dev/null | awk -v s="$sym" \
+                '$3 == s && $2 ~ /^[TtDdBbRr]$/ {found=1} END {exit !found}'; then
+              echo "MISSING symbol: ${sym}"; exit 1
+            fi
+          done
+
+      - name: Package
+        working-directory: lkl
+        run: |
+          mkdir -p pkg
+          cp tools/lkl/liblkl.a pkg/
+          cp tools/lkl/include/lkl.h pkg/ 2>/dev/null || true
+          cp tools/lkl/include/lkl/autoconf.h pkg/ 2>/dev/null || true
+          cp scripts/gdb/vmlinux-gdb.py pkg/ 2>/dev/null || true
+          echo "commit=$(git rev-parse HEAD)" > pkg/BUILD_INFO
+          echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> pkg/BUILD_INFO
+          echo "arch=aarch64" >> pkg/BUILD_INFO
+          cd pkg && sha256sum ./* > sha256sums.txt
+          cd .. && tar czf liblkl-aarch64.tar.gz -C pkg .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: lkl-aarch64
+          path: lkl/liblkl-aarch64.tar.gz
+          retention-days: 3
+
+  # ---- Publish: replace lkl-nightly release with latest artifacts ----
+  publish-nightly:
+    needs: [check-upstream, build-x86_64, build-aarch64]
+    if: needs.check-upstream.outputs.needs_build == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: dist/
+          merge-multiple: true
+
+      - name: Delete old nightly release (if exists)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete "${{ env.NIGHTLY_TAG }}" \
+            --repo "${{ env.KBOX_REPO }}" \
+            --yes --cleanup-tag 2>/dev/null || true
+
+      - name: Create nightly release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          LKL_COMMIT="${{ needs.check-upstream.outputs.lkl_commit }}"
+          BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+          cat > /tmp/release-notes.md <<EOF
+          Nightly prebuilt liblkl.a for kbox.
+
+          commit=${LKL_COMMIT}
+          date=${BUILD_DATE}
+          upstream=https://github.com/${{ env.LKL_UPSTREAM }}/commit/${LKL_COMMIT}
+
+          Contains: liblkl-x86_64.tar.gz, liblkl-aarch64.tar.gz
+          Each tarball includes: liblkl.a, lkl.h, autoconf.h, vmlinux-gdb.py,
+          BUILD_INFO, sha256sums.txt
+          EOF
+
+          gh release create "${{ env.NIGHTLY_TAG }}" \
+            --repo "${{ env.KBOX_REPO }}" \
+            --title "LKL nightly (${BUILD_DATE})" \
+            --notes-file /tmp/release-notes.md \
+            --prerelease \
+            dist/liblkl-x86_64.tar.gz \
+            dist/liblkl-aarch64.tar.gz

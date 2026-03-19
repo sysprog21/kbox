@@ -8,7 +8,14 @@
 #include "kbox/syscall-nr.h"
 
 /*
- * Opaque LKL types -- we only ever pass pointers.
+ * LKL disk descriptor.  This must match the prefix of LKL's struct lkl_disk
+ * (defined in tools/lkl/include/lkl.h).  We declare it here rather than
+ * including the full LKL header tree.
+ *
+ * WARNING: if upstream LKL reorders or adds fields before 'ops', kbox will
+ * silently corrupt the struct.  The CI build-lkl workflow verifies symbol
+ * presence but cannot detect layout changes.  When upgrading the pinned LKL
+ * commit, manually verify this struct matches upstream.
  */
 struct lkl_disk {
     void *dev;

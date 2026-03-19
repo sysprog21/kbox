@@ -9,8 +9,12 @@
 
 set -eu
 
-# LKL's posix-host.c leaks semaphores on shutdown; suppress LSAN.
-export ASAN_OPTIONS="${ASAN_OPTIONS:-}${ASAN_OPTIONS:+:}detect_leaks=0"
+# LKL's posix-host.c leaks semaphores on shutdown.
+# Suppress via LSAN_OPTIONS suppression file (see scripts/lsan-suppressions.txt)
+# rather than blanket detect_leaks=0, so kbox's own leaks are still caught.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SUPP="suppressions=${SCRIPT_DIR}/lsan-suppressions.txt"
+export LSAN_OPTIONS="${LSAN_OPTIONS:+${LSAN_OPTIONS}:}${SUPP}"
 
 KBOX="${1:-./kbox}"
 ROOTFS="${2:-alpine.ext4}"
