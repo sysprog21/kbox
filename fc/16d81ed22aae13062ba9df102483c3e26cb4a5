@@ -1,0 +1,80 @@
+include/kbox/web.h
+  707f0d6dfdc3cbf8 1-264
+src/web-telemetry.c
+  707f0d6dfdc3cbf8 1-355
+src/web-server.c
+  707f0d6dfdc3cbf8 1-126,130-955
+include/kbox/cli.h
+  707f0d6dfdc3cbf8 42-45
+src/seccomp-supervisor.c
+  707f0d6dfdc3cbf8 16-18,268-273,275,289-293,295,300-305,311-333,343-347,349,368-369,529
+src/cli.c
+  707f0d6dfdc3cbf8 15-17,38-40,73,76,178-219
+src/image.c
+  707f0d6dfdc3cbf8 21-23,207-228,363,369-372
+src/web-events.c
+  707f0d6dfdc3cbf8 1-264
+include/kbox/seccomp.h
+  707f0d6dfdc3cbf8 37-38,51,109-110
+Makefile
+  707f0d6dfdc3cbf8 36-40,61-64,205-207
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.15",
+  "base_commit_sha": "fc16d81ed22aae13062ba9df102483c3e26cb4a5",
+  "prompts": {
+    "333c2b146e9a53c8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d050a-d5a4-7c51-92b8-e4790d40bcac",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 4,
+      "total_deletions": 4,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    },
+    "6469f82c46c75cdc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d04ee-5f1e-7992-aec0-c4983c4af21c",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 1151,
+      "overriden_lines": 0
+    },
+    "707f0d6dfdc3cbf8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c9d5b08b-ad72-4d36-aec5-a9509afb9ff0",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 2113,
+      "total_deletions": 126,
+      "accepted_lines": 1992,
+      "overriden_lines": 0
+    },
+    "99d08544f80634d4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "21666603-dfb1-4822-835c-28498194960c",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 58,
+      "total_deletions": 35,
+      "accepted_lines": 30,
+      "overriden_lines": 0
+    }
+  }
+}
