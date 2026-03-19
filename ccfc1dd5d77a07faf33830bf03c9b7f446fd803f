@@ -1,0 +1,23 @@
+src/seccomp-dispatch.c
+  c527b354ad8feb90 2586,2614-2617,2620-2627
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.15",
+  "base_commit_sha": "ccfc1dd5d77a07faf33830bf03c9b7f446fd803f",
+  "prompts": {
+    "c527b354ad8feb90": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c5784ce7-ad6a-440a-9f82-5c0c2972ecd3",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 13,
+      "total_deletions": 1,
+      "accepted_lines": 13,
+      "overriden_lines": 0
+    }
+  }
+}
