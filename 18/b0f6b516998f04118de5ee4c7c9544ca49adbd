@@ -1,0 +1,23 @@
+Makefile
+  66833f035bbadb38 100,162-169
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.15",
+  "base_commit_sha": "18b0f6b516998f04118de5ee4c7c9544ca49adbd",
+  "prompts": {
+    "66833f035bbadb38": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "59f4c001-3612-4e40-b76a-acde44e46932",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 9,
+      "total_deletions": 1,
+      "accepted_lines": 9,
+      "overriden_lines": 0
+    }
+  }
+}
