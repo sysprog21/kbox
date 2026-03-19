@@ -1,0 +1,29 @@
+src/seccomp-dispatch.c
+  220fe2c3950eaca0 2571-2635,4042-4043
+src/syscall-nr.c
+  220fe2c3950eaca0 88,164,261,422,652
+include/kbox/syscall-nr.h
+  220fe2c3950eaca0 67,118-120
+src/seccomp-bpf.c
+  220fe2c3950eaca0 242
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.15",
+  "base_commit_sha": "d415a7737a56161320f55fe9bc313e5ab7934a72",
+  "prompts": {
+    "220fe2c3950eaca0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0fab5b3b-c701-4828-b1aa-42c9a54aadce",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 78,
+      "total_deletions": 3,
+      "accepted_lines": 78,
+      "overriden_lines": 0
+    }
+  }
+}
