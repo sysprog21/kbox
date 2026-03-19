@@ -1,0 +1,25 @@
+scripts/mkrootfs.sh
+  6e9a6eb24b56b3ed 26-32,69
+scripts/alpine-sha256.txt
+  6e9a6eb24b56b3ed 2
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.15",
+  "base_commit_sha": "1ec0c72ed9a67c9bca017f1097d6b8d6d846979a",
+  "prompts": {
+    "6e9a6eb24b56b3ed": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "30da5145-5a82-4ece-ad05-675a24983862",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 23,
+      "total_deletions": 12,
+      "accepted_lines": 14,
+      "overriden_lines": 0
+    }
+  }
+}
