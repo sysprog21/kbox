@@ -1,0 +1,52 @@
+src/web-server.c
+  707f0d6dfdc3cbf8 739,755,760,765,771,777-778,781-782,788,794-806
+web/js/state.js
+  707f0d6dfdc3cbf8 40-41
+web/js/polling.js
+  707f0d6dfdc3cbf8 10-15,26
+scripts/gen-web-assets.sh
+  707f0d6dfdc3cbf8 47-48,51
+src/web-telemetry.c
+  707f0d6dfdc3cbf8 339,341-343,345,348-356,360,363-364
+web/js/charts.js
+  707f0d6dfdc3cbf8 142,147-148
+web/js/controls.js
+  707f0d6dfdc3cbf8 21-22,25-31
+web/js/events.js
+  707f0d6dfdc3cbf8 39-47,49-53,55-56,59-63,66
+src/seccomp-supervisor.c
+  707f0d6dfdc3cbf8 345
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.15",
+  "base_commit_sha": "a370ca6b007e63206ab9447085f1da4b6396c9fb",
+  "prompts": {
+    "31ef7ea0ca0c3884": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d05aa-b2cf-7201-a05a-469bef05d528",
+        "model": "gpt-5.4"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 1182,
+      "total_deletions": 0,
+      "accepted_lines": 1182,
+      "overriden_lines": 0
+    },
+    "707f0d6dfdc3cbf8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c9d5b08b-ad72-4d36-aec5-a9509afb9ff0",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 93,
+      "total_deletions": 64,
+      "accepted_lines": 87,
+      "overriden_lines": 0
+    }
+  }
+}
