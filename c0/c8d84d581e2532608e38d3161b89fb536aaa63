@@ -1,0 +1,49 @@
+.github/workflows/build-lkl.yml
+  ed5dfee1de11788a 3-6,14,22-24,28,35-36,45-48,57,82-86,88-93,100,102-105,131,135,137,162,164,169-170,178-179,187,206-207
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.15",
+  "base_commit_sha": "c0c8d84d581e2532608e38d3161b89fb536aaa63",
+  "prompts": {
+    "66833f035bbadb38": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "59f4c001-3612-4e40-b76a-acde44e46932",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 7,
+      "accepted_lines": 167,
+      "overriden_lines": 0
+    },
+    "dd25cdec91ba573b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d0ad2-ba27-7231-8ac2-12b6ba1f92f4",
+        "model": "gpt-5.4"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 344,
+      "overriden_lines": 0
+    },
+    "ed5dfee1de11788a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "777d7476-e8cf-42e6-828a-36d96ab30df5",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 58,
+      "total_deletions": 110,
+      "accepted_lines": 44,
+      "overriden_lines": 0
+    }
+  }
+}
