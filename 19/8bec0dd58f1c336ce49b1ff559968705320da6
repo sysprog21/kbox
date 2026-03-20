@@ -1,0 +1,116 @@
+Makefile
+  fe83c898a96eaf28 31,114,136-150
+  bdabec38566f3a10 230
+.gitignore
+  fe83c898a96eaf28 9
+include/kbox/syscall-nr.h
+  bdabec38566f3a10 35-36,92-93
+src/image.c
+  bdabec38566f3a10 137-142,144-146,148,156-157,165-166,174-175,181-183,185,190-192,194,201-202,209-211,213,219-221,223,227-229,231,233,235-236,238
+src/fd-table.c
+  bdabec38566f3a10 40,47,74,89,111,140-143,145-146,149,184,190-205,210-216,220-223,234,236
+src/seccomp-supervisor.c
+  bdabec38566f3a10 453-454
+src/net-slirp.c
+  03dbf92f5715bd35 580-597,675
+  bdabec38566f3a10 11-13,16-17,27,30,36-37,40-42,45,47-50,52-69,73-81,83-187,189-191,194-196,200-201,204,207-210,217-278,281-287,290,293-297,300,303-311,314-327,330-339,341-344,346-373,376-385,388,391,394,397-399,414-425,429-431,438-440,444-445,449,452-458,460-474,476,478-494,496-498,500-507,509-524,526-538,542-544,598-607,609-610,619-620,624,632,641-643,645-647,650-653,655-663,665-668,671-672,680,688-689,693,697-702,704,706-728,733-735,737-741,743,745-955,962-970,974,979-981,983-999,1001-1009,1011,1016-1020,1025,1028-1029,1031,1033-1039,1041-1048,1050-1051,1053-1057,1060,1063-1076,1079-1091,1098,1100-1111,1117-1153,1155-1237,1243,1246-1252,1254-1262,1269-1273,1276-1287,1293-1344,1352,1358-1360,1366-1382
+  4b48fd9cccc252bb 211-216,539-541,545-579,608,611-618,621-623,625-631,633-640,644,648-649,654,664,669-670,673-674,676-679,681-687
+src/seccomp-bpf.c
+  bdabec38566f3a10 298-311
+scripts/fetch-minislirp.sh
+  fe83c898a96eaf28 1-26
+include/kbox/fd-table.h
+  bdabec38566f3a10 27-30
+include/kbox/seccomp.h
+  bdabec38566f3a10 78,80-85
+scripts/run-tests.sh
+  bdabec38566f3a10 290-294
+  03dbf92f5715bd35 272-282,296
+include/kbox/lkl-wrap.h
+  bdabec38566f3a10 321-419
+include/kbox/net.h
+  bdabec38566f3a10 27,29-31,33-41,45,55-79
+src/seccomp-dispatch.c
+  bdabec38566f3a10 17,30,495-513,852-911,913,957-1002,1029-1092,1104-1122,1168-1238,1244-1262,2506-2527,2533,2536-2538,2542-2568,2570,2572-2574,2577-2613,2657-2675,2681,2699,2705-2713,2717-2882,2884-3216,4619-4623,4889-4906
+  4b48fd9cccc252bb 2617-2650,4885-4886
+src/seccomp-notify.c
+  bdabec38566f3a10 61-82
+src/lkl-wrap.c
+  bdabec38566f3a10 584-662
+scripts/pre-commit.hook
+  bdabec38566f3a10 59,64-66
+src/syscall-nr.c
+  bdabec38566f3a10 48-57,134-143,221-228,390-397,628-635
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.15",
+  "base_commit_sha": "198bec0dd58f1c336ce49b1ff559968705320da6",
+  "prompts": {
+    "03dbf92f5715bd35": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d0a2f-4be2-7ab0-8732-d37e9b2ae1df",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 60,
+      "total_deletions": 20,
+      "accepted_lines": 59,
+      "overriden_lines": 0
+    },
+    "4b48fd9cccc252bb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d0925-1de2-7fa3-97bd-0bea6552b715",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 145,
+      "total_deletions": 19,
+      "accepted_lines": 130,
+      "overriden_lines": 0
+    },
+    "93070414fa9643e0": {
+      "agent_id": {
+        "tool": "gemini",
+        "id": "08b2c4d5-6ac5-442f-85b0-93ca048f5bdf",
+        "model": "gemini-3.1-pro-preview-customtools"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 36,
+      "total_deletions": 31,
+      "accepted_lines": 4,
+      "overriden_lines": 0
+    },
+    "bdabec38566f3a10": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "59c5e869-64a8-4513-be56-597f3bae5350",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 4219,
+      "total_deletions": 1959,
+      "accepted_lines": 2451,
+      "overriden_lines": 1
+    },
+    "fe83c898a96eaf28": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6e22345b-69cc-4269-a351-a437be716f8b",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 487,
+      "total_deletions": 118,
+      "accepted_lines": 355,
+      "overriden_lines": 1
+    }
+  }
+}
