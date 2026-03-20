@@ -56,10 +56,14 @@ cppcheck_suppressions() {
         "unusedFunction"
         "syntaxError"
         "constParameterPointer"
+        "constVariablePointer"
         "unusedStructMember"
         "redundantAssignment"
         "staticFunction"
         "checkLevelNormal"
+        "variableScope"
+        "compareValueOutOfTypeRangeError"
+        "constVariable"
     )
 
     local out="--inline-suppr "

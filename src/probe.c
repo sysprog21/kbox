@@ -101,10 +101,10 @@ static int probe_seccomp_listener(void)
 
         /* Minimal BPF: load nr, return USER_NOTIF. */
         struct kbox_sock_filter filter[2];
-        filter[0] = (struct kbox_sock_filter){
+        filter[0] = (struct kbox_sock_filter) {
             KBOX_BPF_LD | KBOX_BPF_W | KBOX_BPF_ABS, 0, 0, 0};
-        filter[1] = (struct kbox_sock_filter){KBOX_BPF_RET | KBOX_BPF_K, 0, 0,
-                                              KBOX_SECCOMP_RET_USER_NOTIF};
+        filter[1] = (struct kbox_sock_filter) {KBOX_BPF_RET | KBOX_BPF_K, 0, 0,
+                                               KBOX_SECCOMP_RET_USER_NOTIF};
 
         struct kbox_sock_fprog prog = {
             .len = 2,

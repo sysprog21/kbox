@@ -75,6 +75,14 @@ int kbox_notify_addfd(int listener_fd,
                       int srcfd,
                       uint32_t newfd_flags);
 
+/* Like kbox_notify_addfd but installs the FD at a specific number (for
+ * dup2/dup3). */
+int kbox_notify_addfd_at(int listener_fd,
+                         uint64_t id,
+                         int srcfd,
+                         int target_fd,
+                         uint32_t newfd_flags);
+
 /* --- Dispatch (seccomp-dispatch.c) --- */
 
 /*

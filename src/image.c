@@ -134,9 +134,18 @@ int kbox_run_image(const struct kbox_image_args *args)
         return -1;
     }
 
+    /* --- Register netdev BEFORE boot (LKL probes during boot) --- */
+    if (args->net) {
+        if (kbox_net_add_device() < 0)
+            return -1;
+    }
+
     /* --- Boot the LKL kernel --- */
-    if (kbox_boot_kernel(args->cmdline) < 0)
+    if (kbox_boot_kernel(args->cmdline) < 0) {
+        if (args->net)
+            kbox_net_cleanup();
         return -1;
+    }
 
     /* --- Mount the filesystem --- */
     opts = join_mount_opts(args, opts_buf, sizeof(opts_buf));
@@ -144,6 +153,8 @@ int kbox_run_image(const struct kbox_image_args *args)
                         opts[0] ? opts : NULL, mount_buf, sizeof(mount_buf));
     if (ret < 0) {
         fprintf(stderr, "lkl_mount_dev: %s (%ld)\n", kbox_err_text(ret), ret);
+        if (args->net)
+            kbox_net_cleanup();
         return -1;
     }
 
@@ -151,6 +162,8 @@ int kbox_run_image(const struct kbox_image_args *args)
     sysnrs = detect_sysnrs();
     if (!sysnrs) {
         fprintf(stderr, "detect_sysnrs failed\n");
+        if (args->net)
+            kbox_net_cleanup();
         return -1;
     }
 
@@ -158,50 +171,71 @@ int kbox_run_image(const struct kbox_image_args *args)
     ret = kbox_lkl_chroot(sysnrs, mount_buf);
     if (ret < 0) {
         fprintf(stderr, "chroot(%s): %s\n", mount_buf, kbox_err_text(ret));
+        if (args->net)
+            kbox_net_cleanup();
         return -1;
     }
 
     /* --- Recommended mounts --- */
     if (args->recommended || args->system_root) {
-        if (kbox_apply_recommended_mounts(sysnrs, args->mount_profile) < 0)
+        if (kbox_apply_recommended_mounts(sysnrs, args->mount_profile) < 0) {
+            if (args->net)
+                kbox_net_cleanup();
             return -1;
+        }
     }
 
     /* --- Bind mounts --- */
     if (bind_count > 0) {
-        if (kbox_apply_bind_mounts(sysnrs, bind_specs, bind_count) < 0)
+        if (kbox_apply_bind_mounts(sysnrs, bind_specs, bind_count) < 0) {
+            if (args->net)
+                kbox_net_cleanup();
             return -1;
+        }
     }
 
     /* --- Working directory --- */
     ret = kbox_lkl_chdir(sysnrs, work_dir);
     if (ret < 0) {
         fprintf(stderr, "chdir(%s): %s\n", work_dir, kbox_err_text(ret));
+        if (args->net)
+            kbox_net_cleanup();
         return -1;
     }
 
     /* --- Identity --- */
     if (args->change_id) {
         if (kbox_parse_change_id(args->change_id, &override_uid,
-                                 &override_gid) < 0)
+                                 &override_gid) < 0) {
+            if (args->net)
+                kbox_net_cleanup();
             return -1;
+        }
     }
 
     {
         int root_id = args->root_id || args->system_root;
         if (kbox_apply_guest_identity(sysnrs, root_id, override_uid,
-                                      override_gid) < 0)
+                                      override_gid) < 0) {
+            if (args->net)
+                kbox_net_cleanup();
             return -1;
+        }
     }
 
     /* --- Probe host features --- */
-    if (kbox_probe_host_features() < 0)
+    if (kbox_probe_host_features() < 0) {
+        if (args->net)
+            kbox_net_cleanup();
         return -1;
+    }
 
-    /* --- Networking (optional) --- */
+    /* --- Networking: configure interface (optional) --- */
     if (args->net) {
-        if (kbox_net_init(sysnrs) < 0)
+        if (kbox_net_configure(sysnrs) < 0) {
+            kbox_net_cleanup();
             return -1;
+        }
     }
 
     /* --- Web observatory (optional) --- */

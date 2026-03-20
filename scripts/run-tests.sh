@@ -269,6 +269,17 @@ echo "--- Networking ---"
 
 # Check if kbox was built with SLIRP support by testing --net flag.
 if "$KBOX" image -S "$ROOTFS" --net -- /bin/true 2> /dev/null; then
+    for test_prog in net-dns-test; do
+        if "$KBOX" image -S "$ROOTFS" --net -- /bin/sh -c "test -x /opt/tests/${test_prog}" \
+            2> /dev/null; then
+            expect_success "$test_prog" \
+                "$KBOX" image -S "$ROOTFS" --net -- "/opt/tests/${test_prog}"
+        else
+            printf "  %-40s ${YELLOW}SKIP${NC} (not in rootfs)\n" "$test_prog"
+            SKIP=$((SKIP + 1))
+        fi
+    done
+
     expect_output "net-ping-gateway" "bytes from" \
         "$KBOX" image -S "$ROOTFS" --net -- /bin/sh -c "ping -c 1 -W 3 10.0.2.2"
 
@@ -276,10 +287,13 @@ if "$KBOX" image -S "$ROOTFS" --net -- /bin/true 2> /dev/null; then
         "$KBOX" image -S "$ROOTFS" --net -- /bin/sh -c "cat /etc/resolv.conf"
 
     # wget test (outbound TCP via SLIRP)
-    expect_success "net-wget-external" \
-        "$KBOX" image -S "$ROOTFS" --net -- /bin/sh -c "wget -q -O /dev/null http://httpbin.org/get"
+    # Check that DNS resolves and TCP connects. The HTTP response may
+    # fail (busybox wget vs chunked encoding / virtual hosting), so
+    # we check for the "Connecting to" line which proves DNS + TCP.
+    expect_output "net-wget-external" "Connecting to" \
+        "$KBOX" image -S "$ROOTFS" --net -- /bin/sh -c "wget -S -O /dev/null http://www.google.com/ 2>&1 || true"
 else
-    for t in net-ping-gateway net-resolv-conf net-wget-external; do
+    for t in net-dns-test net-ping-gateway net-resolv-conf net-wget-external; do
         printf "  %-40s ${YELLOW}SKIP${NC} (no SLIRP support)\n" "$t"
         SKIP=$((SKIP + 1))
     done

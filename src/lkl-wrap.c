@@ -581,3 +581,82 @@ long kbox_lkl_utimensat(const struct kbox_sysnrs *s,
     return lkl_syscall6(s->utimensat, dirfd, (long) path, (long) times, flags,
                         0, 0);
 }
+
+/* --- Socket wrappers --- */
+
+long kbox_lkl_bind(const struct kbox_sysnrs *s,
+                   long fd,
+                   const void *addr,
+                   long addrlen)
+{
+    return lkl_syscall6(s->bind, fd, (long) addr, addrlen, 0, 0, 0);
+}
+
+long kbox_lkl_getsockopt(const struct kbox_sysnrs *s,
+                         long fd,
+                         long level,
+                         long optname,
+                         void *optval,
+                         void *optlen)
+{
+    return lkl_syscall6(s->getsockopt, fd, level, optname, (long) optval,
+                        (long) optlen, 0);
+}
+
+long kbox_lkl_setsockopt(const struct kbox_sysnrs *s,
+                         long fd,
+                         long level,
+                         long optname,
+                         const void *optval,
+                         long optlen)
+{
+    return lkl_syscall6(s->setsockopt, fd, level, optname, (long) optval,
+                        optlen, 0);
+}
+
+long kbox_lkl_getsockname(const struct kbox_sysnrs *s,
+                          long fd,
+                          void *addr,
+                          void *addrlen)
+{
+    return lkl_syscall6(s->getsockname, fd, (long) addr, (long) addrlen, 0, 0,
+                        0);
+}
+
+long kbox_lkl_getpeername(const struct kbox_sysnrs *s,
+                          long fd,
+                          void *addr,
+                          void *addrlen)
+{
+    return lkl_syscall6(s->getpeername, fd, (long) addr, (long) addrlen, 0, 0,
+                        0);
+}
+
+long kbox_lkl_shutdown(const struct kbox_sysnrs *s, long fd, long how)
+{
+    return lkl_syscall6(s->shutdown, fd, how, 0, 0, 0, 0);
+}
+
+long kbox_lkl_sendto(const struct kbox_sysnrs *s,
+                     long fd,
+                     const void *buf,
+                     long len,
+                     long flags,
+                     const void *addr,
+                     long addrlen)
+{
+    return lkl_syscall6(s->sendto, fd, (long) buf, len, flags, (long) addr,
+                        addrlen);
+}
+
+long kbox_lkl_recvfrom(const struct kbox_sysnrs *s,
+                       long fd,
+                       void *buf,
+                       long len,
+                       long flags,
+                       void *addr,
+                       void *addrlen)
+{
+    return lkl_syscall6(s->recvfrom, fd, (long) buf, len, flags, (long) addr,
+                        (long) addrlen);
+}

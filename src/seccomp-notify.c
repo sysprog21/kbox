@@ -58,3 +58,25 @@ int kbox_notify_addfd(int listener_fd,
         return -errno;
     return ret; /* remote FD number */
 }
+
+int kbox_notify_addfd_at(int listener_fd,
+                         uint64_t id,
+                         int srcfd,
+                         int target_fd,
+                         uint32_t newfd_flags)
+{
+    struct kbox_seccomp_notif_addfd addfd;
+    int ret;
+
+    memset(&addfd, 0, sizeof(addfd));
+    addfd.id = id;
+    addfd.srcfd = (uint32_t) srcfd;
+    addfd.newfd = (uint32_t) target_fd;
+    addfd.newfd_flags = newfd_flags;
+    addfd.flags = 1; /* SECCOMP_ADDFD_FLAG_SETFD: install at exact newfd */
+
+    ret = ioctl(listener_fd, KBOX_SECCOMP_IOCTL_NOTIF_ADDFD, &addfd);
+    if (ret < 0)
+        return -errno;
+    return ret;
+}

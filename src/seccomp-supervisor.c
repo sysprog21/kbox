@@ -450,7 +450,8 @@ int kbox_run_supervisor(const struct kbox_sysnrs *sysnrs,
             _exit(127);
         }
 
-        /* 3c. Send listener FD to parent. */
+        /* 3c. Send listener FD to parent via SCM_RIGHTS.
+         * sendmsg is in the BPF allow list so this bypasses seccomp. */
         if (send_fd(sp[1], listener_fd) < 0)
             _exit(127);
 

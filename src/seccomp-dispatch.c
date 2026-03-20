@@ -14,6 +14,7 @@
 #include "kbox/fd-table.h"
 #include "kbox/identity.h"
 #include "kbox/lkl-wrap.h"
+#include "kbox/net.h"
 #include "kbox/path.h"
 #include "kbox/procmem.h"
 #include "kbox/seccomp.h"
@@ -26,6 +27,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/uio.h>
@@ -489,9 +491,26 @@ static struct kbox_dispatch forward_close(
     long vfd = kbox_fd_table_find_by_host_fd(ctx->fd_table, fd);
     if (vfd >= 0) {
         long lkl = kbox_fd_table_get_lkl(ctx->fd_table, vfd);
-        if (lkl >= 0)
-            kbox_lkl_close(ctx->sysnrs, lkl);
         kbox_fd_table_remove(ctx->fd_table, vfd);
+
+        if (lkl >= 0) {
+            /* Only close the LKL socket and deregister from the event
+             * loop if no other fd_table entry references the same
+             * lkl_fd (handles dup'd shadow sockets). */
+            int still_ref = 0;
+            for (long i = 0; i < KBOX_FD_TABLE_MAX && !still_ref; i++) {
+                if (ctx->fd_table->entries[i].lkl_fd == lkl)
+                    still_ref = 1;
+            }
+            for (long i = 0; i < KBOX_LOW_FD_MAX && !still_ref; i++) {
+                if (ctx->fd_table->low_fds[i].lkl_fd == lkl)
+                    still_ref = 1;
+            }
+            if (!still_ref) {
+                kbox_net_deregister_socket((int) lkl);
+                kbox_lkl_close(ctx->sysnrs, lkl);
+            }
+        }
         return kbox_dispatch_continue();
     }
 
@@ -830,8 +849,68 @@ static struct kbox_dispatch forward_fcntl(
     long fd = to_c_long_arg(notif->data.args[0]);
     long lkl_fd = kbox_fd_table_get_lkl(ctx->fd_table, fd);
 
-    if (lkl_fd < 0)
+    if (lkl_fd < 0) {
+        /* Shadow socket: handle F_DUPFD* and F_SETFL. */
+        long svfd = kbox_fd_table_find_by_host_fd(ctx->fd_table, fd);
+        if (svfd >= 0) {
+            long scmd = to_c_long_arg(notif->data.args[1]);
+            if (scmd == F_DUPFD || scmd == F_DUPFD_CLOEXEC) {
+                long minfd = to_c_long_arg(notif->data.args[2]);
+                /* When minfd > 0, skip ADDFD (can't honor the
+                 * minimum) and let CONTINUE handle it correctly.
+                 * The dup is untracked but no FD leaks. */
+                struct kbox_fd_entry *orig = NULL;
+                if (minfd > 0)
+                    goto fcntl_continue;
+                if (svfd >= KBOX_FD_BASE)
+                    orig = &ctx->fd_table->entries[svfd - KBOX_FD_BASE];
+                else if (svfd < KBOX_LOW_FD_MAX)
+                    orig = &ctx->fd_table->low_fds[svfd];
+                if (orig && orig->shadow_sp >= 0) {
+                    uint32_t af = (scmd == F_DUPFD_CLOEXEC) ? O_CLOEXEC : 0;
+                    int nh = kbox_notify_addfd(ctx->listener_fd, notif->id,
+                                               orig->shadow_sp, af);
+                    if (nh >= 0) {
+                        long nv = kbox_fd_table_insert(ctx->fd_table,
+                                                       orig->lkl_fd, 0);
+                        if (nv < 0)
+                            return kbox_dispatch_errno(EMFILE);
+                        kbox_fd_table_set_host_fd(ctx->fd_table, nv, nh);
+                        int ns = dup(orig->shadow_sp);
+                        if (ns >= 0) {
+                            struct kbox_fd_entry *ne = NULL;
+                            if (nv >= KBOX_FD_BASE)
+                                ne = &ctx->fd_table->entries[nv - KBOX_FD_BASE];
+                            else if (nv < KBOX_LOW_FD_MAX)
+                                ne = &ctx->fd_table->low_fds[nv];
+                            if (ne) {
+                                ne->shadow_sp = ns;
+                                if (scmd == F_DUPFD_CLOEXEC)
+                                    ne->cloexec = 1;
+                            } else {
+                                close(ns);
+                            }
+                        }
+                        return kbox_dispatch_value((int64_t) nh);
+                    }
+                }
+            }
+            if (scmd == F_SETFL) {
+                long sarg = to_c_long_arg(notif->data.args[2]);
+                long slkl = kbox_fd_table_get_lkl(ctx->fd_table, svfd);
+                if (slkl >= 0)
+                    kbox_lkl_fcntl(ctx->sysnrs, slkl, F_SETFL, sarg);
+            }
+            if (scmd == F_SETFD) {
+                /* Keep fd-table cloexec in sync with host kernel. */
+                long sarg = to_c_long_arg(notif->data.args[2]);
+                kbox_fd_table_set_cloexec(ctx->fd_table, svfd,
+                                          (sarg & FD_CLOEXEC) ? 1 : 0);
+            }
+        }
+    fcntl_continue:
         return kbox_dispatch_continue();
+    }
 
     long cmd = to_c_long_arg(notif->data.args[1]);
     long arg = to_c_long_arg(notif->data.args[2]);
@@ -875,8 +954,52 @@ static struct kbox_dispatch forward_dup(const struct kbox_seccomp_notif *notif,
     long fd = to_c_long_arg(notif->data.args[0]);
     long lkl_fd = kbox_fd_table_get_lkl(ctx->fd_table, fd);
 
-    if (lkl_fd < 0)
-        return kbox_dispatch_continue();
+    if (lkl_fd < 0) {
+        /* Check for shadow socket (tracee holds host_fd from ADDFD). */
+        long orig_vfd = kbox_fd_table_find_by_host_fd(ctx->fd_table, fd);
+        if (orig_vfd < 0)
+            return kbox_dispatch_continue();
+
+        /* Shadow socket dup: inject a new copy of the socketpair end
+         * into the tracee and track the new host_fd. */
+        struct kbox_fd_entry *orig = NULL;
+        if (orig_vfd >= KBOX_FD_BASE)
+            orig = &ctx->fd_table->entries[orig_vfd - KBOX_FD_BASE];
+        else if (orig_vfd < KBOX_LOW_FD_MAX)
+            orig = &ctx->fd_table->low_fds[orig_vfd];
+        if (!orig || orig->shadow_sp < 0)
+            return kbox_dispatch_continue();
+
+        long orig_lkl = orig->lkl_fd;
+        int new_host =
+            kbox_notify_addfd(ctx->listener_fd, notif->id, orig->shadow_sp, 0);
+        if (new_host < 0)
+            return kbox_dispatch_errno(-new_host);
+
+        long new_vfd = kbox_fd_table_insert(ctx->fd_table, orig_lkl, 0);
+        if (new_vfd < 0) {
+            /* Can't track the FD -- return error. The tracee already
+             * has the FD via ADDFD which we can't revoke, but returning
+             * EMFILE tells the caller dup failed so it won't use it. */
+            return kbox_dispatch_errno(EMFILE);
+        }
+        kbox_fd_table_set_host_fd(ctx->fd_table, new_vfd, new_host);
+
+        /* Propagate shadow_sp so chained dups work. */
+        int new_sp = dup(orig->shadow_sp);
+        if (new_sp >= 0) {
+            struct kbox_fd_entry *ne = NULL;
+            if (new_vfd >= KBOX_FD_BASE)
+                ne = &ctx->fd_table->entries[new_vfd - KBOX_FD_BASE];
+            else if (new_vfd < KBOX_LOW_FD_MAX)
+                ne = &ctx->fd_table->low_fds[new_vfd];
+            if (ne)
+                ne->shadow_sp = new_sp;
+            else
+                close(new_sp);
+        }
+        return kbox_dispatch_value((int64_t) new_host);
+    }
 
     long ret = kbox_lkl_dup(ctx->sysnrs, lkl_fd);
     if (ret < 0)
@@ -903,6 +1026,70 @@ static struct kbox_dispatch forward_dup2(const struct kbox_seccomp_notif *notif,
 
     long lkl_old = kbox_fd_table_get_lkl(ctx->fd_table, oldfd);
     if (lkl_old < 0) {
+        /* Shadow socket dup2: dup2(fd, fd) must return fd unchanged. */
+        if (oldfd == newfd)
+            return kbox_dispatch_value((int64_t) newfd);
+
+        long orig_vfd = kbox_fd_table_find_by_host_fd(ctx->fd_table, oldfd);
+        if (orig_vfd >= 0) {
+            struct kbox_fd_entry *orig = NULL;
+            if (orig_vfd >= KBOX_FD_BASE)
+                orig = &ctx->fd_table->entries[orig_vfd - KBOX_FD_BASE];
+            else if (orig_vfd < KBOX_LOW_FD_MAX)
+                orig = &ctx->fd_table->low_fds[orig_vfd];
+            if (orig && orig->shadow_sp >= 0) {
+                int new_host =
+                    kbox_notify_addfd_at(ctx->listener_fd, notif->id,
+                                         orig->shadow_sp, (int) newfd, 0);
+                if (new_host >= 0) {
+                    /* Remove any stale mapping at newfd (virtual or shadow). */
+                    long stale = kbox_fd_table_get_lkl(ctx->fd_table, newfd);
+                    if (stale >= 0) {
+                        kbox_lkl_close(ctx->sysnrs, stale);
+                        kbox_fd_table_remove(ctx->fd_table, newfd);
+                    } else {
+                        long sv =
+                            kbox_fd_table_find_by_host_fd(ctx->fd_table, newfd);
+                        if (sv >= 0) {
+                            long sl = kbox_fd_table_get_lkl(ctx->fd_table, sv);
+                            kbox_fd_table_remove(ctx->fd_table, sv);
+                            if (sl >= 0) {
+                                int ref = 0;
+                                for (long j = 0; j < KBOX_FD_TABLE_MAX; j++)
+                                    if (ctx->fd_table->entries[j].lkl_fd == sl)
+                                        ref = 1;
+                                for (long j = 0; j < KBOX_LOW_FD_MAX && !ref;
+                                     j++)
+                                    if (ctx->fd_table->low_fds[j].lkl_fd == sl)
+                                        ref = 1;
+                                if (!ref) {
+                                    kbox_net_deregister_socket((int) sl);
+                                    kbox_lkl_close(ctx->sysnrs, sl);
+                                }
+                            }
+                        }
+                    }
+                    long nv =
+                        kbox_fd_table_insert(ctx->fd_table, orig->lkl_fd, 0);
+                    if (nv < 0)
+                        return kbox_dispatch_errno(EMFILE);
+                    kbox_fd_table_set_host_fd(ctx->fd_table, nv, new_host);
+                    int ns = dup(orig->shadow_sp);
+                    if (ns >= 0) {
+                        struct kbox_fd_entry *ne2 = NULL;
+                        if (nv >= KBOX_FD_BASE)
+                            ne2 = &ctx->fd_table->entries[nv - KBOX_FD_BASE];
+                        else if (nv < KBOX_LOW_FD_MAX)
+                            ne2 = &ctx->fd_table->low_fds[nv];
+                        if (ne2)
+                            ne2->shadow_sp = ns;
+                        else
+                            close(ns);
+                    }
+                    return kbox_dispatch_value((int64_t) newfd);
+                }
+            }
+        }
         /*
          * oldfd is a host FD.  If newfd has a stale LKL redirect
          * (from a previous dup2), clean it up before the host
@@ -914,6 +1101,25 @@ static struct kbox_dispatch forward_dup2(const struct kbox_seccomp_notif *notif,
         if (stale >= 0) {
             kbox_lkl_close(ctx->sysnrs, stale);
             kbox_fd_table_remove(ctx->fd_table, newfd);
+        } else {
+            long sv = kbox_fd_table_find_by_host_fd(ctx->fd_table, newfd);
+            if (sv >= 0) {
+                long sl = kbox_fd_table_get_lkl(ctx->fd_table, sv);
+                kbox_fd_table_remove(ctx->fd_table, sv);
+                if (sl >= 0) {
+                    int ref = 0;
+                    for (long j = 0; j < KBOX_FD_TABLE_MAX; j++)
+                        if (ctx->fd_table->entries[j].lkl_fd == sl)
+                            ref = 1;
+                    for (long j = 0; j < KBOX_LOW_FD_MAX && !ref; j++)
+                        if (ctx->fd_table->low_fds[j].lkl_fd == sl)
+                            ref = 1;
+                    if (!ref) {
+                        kbox_net_deregister_socket((int) sl);
+                        kbox_lkl_close(ctx->sysnrs, sl);
+                    }
+                }
+            }
         }
         return kbox_dispatch_continue();
     }
@@ -959,11 +1165,101 @@ static struct kbox_dispatch forward_dup3(const struct kbox_seccomp_notif *notif,
 
     long lkl_old = kbox_fd_table_get_lkl(ctx->fd_table, oldfd);
     if (lkl_old < 0) {
+        /* Shadow socket dup3: dup3(fd, fd, ...) must return EINVAL. */
+        if (oldfd == newfd) {
+            if (kbox_fd_table_find_by_host_fd(ctx->fd_table, oldfd) >= 0)
+                return kbox_dispatch_errno(EINVAL);
+        }
+
+        long orig_vfd = kbox_fd_table_find_by_host_fd(ctx->fd_table, oldfd);
+        if (orig_vfd >= 0) {
+            struct kbox_fd_entry *orig = NULL;
+            if (orig_vfd >= KBOX_FD_BASE)
+                orig = &ctx->fd_table->entries[orig_vfd - KBOX_FD_BASE];
+            else if (orig_vfd < KBOX_LOW_FD_MAX)
+                orig = &ctx->fd_table->low_fds[orig_vfd];
+            if (orig && orig->shadow_sp >= 0) {
+                uint32_t af = (flags & O_CLOEXEC) ? O_CLOEXEC : 0;
+                int new_host =
+                    kbox_notify_addfd_at(ctx->listener_fd, notif->id,
+                                         orig->shadow_sp, (int) newfd, af);
+                if (new_host >= 0) {
+                    /* Remove stale mapping at newfd (virtual or shadow). */
+                    long stale3 = kbox_fd_table_get_lkl(ctx->fd_table, newfd);
+                    if (stale3 >= 0) {
+                        kbox_lkl_close(ctx->sysnrs, stale3);
+                        kbox_fd_table_remove(ctx->fd_table, newfd);
+                    } else {
+                        long sv3 =
+                            kbox_fd_table_find_by_host_fd(ctx->fd_table, newfd);
+                        if (sv3 >= 0) {
+                            long sl3 =
+                                kbox_fd_table_get_lkl(ctx->fd_table, sv3);
+                            kbox_fd_table_remove(ctx->fd_table, sv3);
+                            if (sl3 >= 0) {
+                                int r3 = 0;
+                                for (long j = 0; j < KBOX_FD_TABLE_MAX; j++)
+                                    if (ctx->fd_table->entries[j].lkl_fd == sl3)
+                                        r3 = 1;
+                                for (long j = 0; j < KBOX_LOW_FD_MAX && !r3;
+                                     j++)
+                                    if (ctx->fd_table->low_fds[j].lkl_fd == sl3)
+                                        r3 = 1;
+                                if (!r3) {
+                                    kbox_net_deregister_socket((int) sl3);
+                                    kbox_lkl_close(ctx->sysnrs, sl3);
+                                }
+                            }
+                        }
+                    }
+                    long nv =
+                        kbox_fd_table_insert(ctx->fd_table, orig->lkl_fd, 0);
+                    if (nv < 0)
+                        return kbox_dispatch_errno(EMFILE);
+                    kbox_fd_table_set_host_fd(ctx->fd_table, nv, new_host);
+                    int ns3 = dup(orig->shadow_sp);
+                    if (ns3 >= 0) {
+                        struct kbox_fd_entry *ne3 = NULL;
+                        if (nv >= KBOX_FD_BASE)
+                            ne3 = &ctx->fd_table->entries[nv - KBOX_FD_BASE];
+                        else if (nv < KBOX_LOW_FD_MAX)
+                            ne3 = &ctx->fd_table->low_fds[nv];
+                        if (ne3) {
+                            ne3->shadow_sp = ns3;
+                            if (flags & O_CLOEXEC)
+                                ne3->cloexec = 1;
+                        } else {
+                            close(ns3);
+                        }
+                    }
+                    return kbox_dispatch_value((int64_t) newfd);
+                }
+            }
+        }
         /* Same stale-redirect cleanup as forward_dup2. */
         long stale = kbox_fd_table_get_lkl(ctx->fd_table, newfd);
         if (stale >= 0) {
             kbox_lkl_close(ctx->sysnrs, stale);
             kbox_fd_table_remove(ctx->fd_table, newfd);
+        } else {
+            long sv = kbox_fd_table_find_by_host_fd(ctx->fd_table, newfd);
+            if (sv >= 0) {
+                long sl = kbox_fd_table_get_lkl(ctx->fd_table, sv);
+                kbox_fd_table_remove(ctx->fd_table, sv);
+                if (sl >= 0) {
+                    int ref = 0;
+                    for (long j = 0; j < KBOX_FD_TABLE_MAX; j++)
+                        if (ctx->fd_table->entries[j].lkl_fd == sl)
+                            ref = 1;
+                    for (long j = 0; j < KBOX_LOW_FD_MAX && !ref; j++)
+                        if (ctx->fd_table->low_fds[j].lkl_fd == sl)
+                            ref = 1;
+                    if (!ref) {
+                        kbox_net_deregister_socket((int) sl);
+                        kbox_lkl_close(ctx->sysnrs, sl);
+                    }
+                }
+            }
         }
         return kbox_dispatch_continue();
     }
@@ -2207,36 +2503,127 @@ static struct kbox_dispatch forward_setfsgid(
 /* forward_socket                                                     */
 /* ------------------------------------------------------------------ */
 
+/*
+ * Shadow socket design:
+ *   1. Create an LKL socket (lives inside LKL's network stack)
+ *   2. Create a host socketpair (sp[0]=supervisor, sp[1]=tracee)
+ *   3. Inject sp[1] into the tracee via ADDFD
+ *   4. Register sp[0]+lkl_fd with the SLIRP event loop
+ *   5. The event loop pumps data between sp[0] and the LKL socket
+ *
+ * The tracee sees a real host FD, so poll/epoll/read/write all work
+ * natively via the host kernel.  Only control-plane ops (connect,
+ * getsockopt, etc.) need explicit forwarding.
+ */
+/*
+ * INET sockets with SLIRP active get a shadow socket bridge so data
+ * flows through the host kernel socketpair (bypassing BKL contention
+ * in blocking LKL recv/send calls).  Non-INET sockets and INET sockets
+ * without SLIRP use the standard virtual FD path.
+ *
+ * Limitation: listen/accept on shadow sockets fail because the AF_UNIX
+ * socketpair doesn't support inbound connections.  Server sockets must
+ * be used without --net or via a future deferred-bridge approach.
+ */
 static struct kbox_dispatch forward_socket(
     const struct kbox_seccomp_notif *notif,
     struct kbox_supervisor_ctx *ctx)
 {
     long domain = to_c_long_arg(notif->data.args[0]);
-    long type = to_c_long_arg(notif->data.args[1]);
+    long type_raw = to_c_long_arg(notif->data.args[1]);
     long protocol = to_c_long_arg(notif->data.args[2]);
 
-    long ret = kbox_lkl_socket(ctx->sysnrs, domain, type, protocol);
+    int base_type = (int) type_raw & 0xFF;
+
+    long ret = kbox_lkl_socket(ctx->sysnrs, domain, type_raw, protocol);
     if (ret < 0)
         return kbox_dispatch_errno((int) (-ret));
 
-    long vfd = kbox_fd_table_insert(ctx->fd_table, ret, 0);
+    long lkl_fd = ret;
+
+    /* Virtual FD path when shadow bridge is not applicable:
+     * - SLIRP not active (no --net)
+     * - Non-INET domain (AF_UNIX, AF_NETLINK, etc.)
+     * - Non-stream/datagram type (SOCK_RAW, etc.) -- socketpair(AF_UNIX)
+     *   only supports SOCK_STREAM and SOCK_DGRAM */
+    if (!kbox_net_is_active() ||
+        (domain != 2 /* AF_INET */ && domain != 10 /* AF_INET6 */) ||
+        (base_type != SOCK_STREAM && base_type != SOCK_DGRAM)) {
+        long vfd = kbox_fd_table_insert(ctx->fd_table, lkl_fd, 0);
+        if (vfd < 0) {
+            kbox_lkl_close(ctx->sysnrs, lkl_fd);
+            return kbox_dispatch_errno(EMFILE);
+        }
+        return kbox_dispatch_value((int64_t) vfd);
+    }
+
+    /* Shadow socket bridge for INET with SLIRP. */
+    int sp[2];
+    if (socketpair(AF_UNIX, base_type | SOCK_CLOEXEC, 0, sp) < 0) {
+        kbox_lkl_close(ctx->sysnrs, lkl_fd);
+        return kbox_dispatch_errno(errno);
+    }
+    fcntl(sp[0], F_SETFL, O_NONBLOCK);
+    if (type_raw & SOCK_NONBLOCK)
+        fcntl(sp[1], F_SETFL, O_NONBLOCK);
+
+    long vfd = kbox_fd_table_insert(ctx->fd_table, lkl_fd, 0);
     if (vfd < 0) {
-        kbox_lkl_close(ctx->sysnrs, ret);
+        close(sp[0]);
+        close(sp[1]);
+        kbox_lkl_close(ctx->sysnrs, lkl_fd);
         return kbox_dispatch_errno(EMFILE);
     }
-    return kbox_dispatch_value((int64_t) vfd);
+
+    if (kbox_net_register_socket((int) lkl_fd, sp[0], base_type) < 0) {
+        close(sp[0]);
+        close(sp[1]);
+        /* Fall back to virtual FD. */
+        return kbox_dispatch_value((int64_t) vfd);
+    }
+
+    uint32_t addfd_flags = 0;
+    if (type_raw & SOCK_CLOEXEC)
+        addfd_flags = O_CLOEXEC;
+    int host_fd =
+        kbox_notify_addfd(ctx->listener_fd, notif->id, sp[1], addfd_flags);
+    if (host_fd < 0) {
+        /* Deregister closes sp[0] and marks inactive. */
+        kbox_net_deregister_socket((int) lkl_fd);
+        close(sp[1]);
+        kbox_fd_table_remove(ctx->fd_table, vfd);
+        kbox_lkl_close(ctx->sysnrs, lkl_fd);
+        return kbox_dispatch_errno(-host_fd);
+    }
+    kbox_fd_table_set_host_fd(ctx->fd_table, vfd, host_fd);
+
+    {
+        struct kbox_fd_entry *e = NULL;
+        if (vfd >= KBOX_FD_BASE)
+            e = &ctx->fd_table->entries[vfd - KBOX_FD_BASE];
+        else if (vfd >= 0 && vfd < KBOX_LOW_FD_MAX)
+            e = &ctx->fd_table->low_fds[vfd];
+        if (e) {
+            e->shadow_sp = sp[1];
+            if (type_raw & SOCK_CLOEXEC)
+                e->cloexec = 1;
+        }
+    }
+
+    return kbox_dispatch_value((int64_t) host_fd);
 }
 
 /* ------------------------------------------------------------------ */
-/* forward_connect                                                    */
+/* forward_bind / forward_connect                                     */
 /* ------------------------------------------------------------------ */
 
-static struct kbox_dispatch forward_connect(
-    const struct kbox_seccomp_notif *notif,
-    struct kbox_supervisor_ctx *ctx)
+static long resolve_lkl_socket(struct kbox_supervisor_ctx *ctx, long fd);
+
+static struct kbox_dispatch forward_bind(const struct kbox_seccomp_notif *notif,
+                                         struct kbox_supervisor_ctx *ctx)
 {
     long fd = to_c_long_arg(notif->data.args[0]);
-    long lkl_fd = kbox_fd_table_get_lkl(ctx->fd_table, fd);
+    long lkl_fd = resolve_lkl_socket(ctx, fd);
 
     if (lkl_fd < 0)
         return kbox_dispatch_continue();
@@ -2251,23 +2638,581 @@ static struct kbox_dispatch forward_connect(
     if (addr_ptr == 0)
         return kbox_dispatch_errno(EFAULT);
 
-    /* Cap sockaddr size to prevent memory exhaustion. */
     if (len > 4096)
         return kbox_dispatch_errno(EINVAL);
 
-    uint8_t *buf = malloc(len);
-    if (!buf)
-        return kbox_dispatch_errno(ENOMEM);
-
+    uint8_t buf[4096];
     int rrc = kbox_vm_read(pid, addr_ptr, buf, len);
-    if (rrc < 0) {
-        free(buf);
+    if (rrc < 0)
         return kbox_dispatch_errno(-rrc);
-    }
+
+    long ret = kbox_lkl_bind(ctx->sysnrs, lkl_fd, buf, (long) len);
+    return kbox_dispatch_from_lkl(ret);
+}
+
+/* ------------------------------------------------------------------ */
+/* forward_connect                                                    */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Resolve LKL FD from a tracee FD.  The tracee may hold either a
+ * virtual FD (>= KBOX_FD_BASE) or a host FD from a shadow socket
+ * (injected via ADDFD).  Try both paths.
+ */
+static long resolve_lkl_socket(struct kbox_supervisor_ctx *ctx, long fd)
+{
+    long lkl_fd = kbox_fd_table_get_lkl(ctx->fd_table, fd);
+    if (lkl_fd >= 0)
+        return lkl_fd;
+
+    /* Shadow socket: tracee uses the host_fd directly. */
+    long vfd = kbox_fd_table_find_by_host_fd(ctx->fd_table, fd);
+    if (vfd >= 0)
+        return kbox_fd_table_get_lkl(ctx->fd_table, vfd);
+
+    return -1;
+}
+
+static struct kbox_dispatch forward_connect(
+    const struct kbox_seccomp_notif *notif,
+    struct kbox_supervisor_ctx *ctx)
+{
+    long fd = to_c_long_arg(notif->data.args[0]);
+    long lkl_fd = resolve_lkl_socket(ctx, fd);
+
+    if (lkl_fd < 0)
+        return kbox_dispatch_continue();
+
+    pid_t pid = notif->pid;
+    uint64_t addr_ptr = notif->data.args[1];
+    int64_t len_raw = to_c_long_arg(notif->data.args[2]);
+    if (len_raw < 0)
+        return kbox_dispatch_errno(EINVAL);
+    size_t len = (size_t) len_raw;
+
+    if (addr_ptr == 0)
+        return kbox_dispatch_errno(EFAULT);
+
+    if (len > 4096)
+        return kbox_dispatch_errno(EINVAL);
+
+    uint8_t buf[4096];
+    int rrc = kbox_vm_read(pid, addr_ptr, buf, len);
+    if (rrc < 0)
+        return kbox_dispatch_errno(-rrc);
 
     long ret = kbox_lkl_connect(ctx->sysnrs, lkl_fd, buf, (long) len);
-    free(buf);
+
+    /*
+     * Propagate -EINPROGRESS directly for nonblocking sockets.
+     * The tracee's poll(POLLOUT) on the AF_UNIX socketpair returns
+     * immediately (spurious wakeup), but getsockopt(SO_ERROR) is
+     * forwarded to the LKL socket and returns the real handshake
+     * status.  The tracee retries poll+getsockopt until SO_ERROR
+     * clears -- standard nonblocking connect flow.
+     */
     return kbox_dispatch_from_lkl(ret);
+}
+
+/* ------------------------------------------------------------------ */
+/* forward_getsockopt                                                 */
+/* ------------------------------------------------------------------ */
+
+static struct kbox_dispatch forward_getsockopt(
+    const struct kbox_seccomp_notif *notif,
+    struct kbox_supervisor_ctx *ctx)
+{
+    long fd = to_c_long_arg(notif->data.args[0]);
+    long lkl_fd = resolve_lkl_socket(ctx, fd);
+    if (lkl_fd < 0)
+        return kbox_dispatch_continue();
+
+    pid_t pid = notif->pid;
+    long level = to_c_long_arg(notif->data.args[1]);
+    long optname = to_c_long_arg(notif->data.args[2]);
+    uint64_t optval_ptr = notif->data.args[3];
+    uint64_t optlen_ptr = notif->data.args[4];
+
+    if (optval_ptr == 0 || optlen_ptr == 0)
+        return kbox_dispatch_errno(EFAULT);
+
+    /* Read the optlen from tracee. */
+    unsigned int optlen;
+    int rrc = kbox_vm_read(pid, optlen_ptr, &optlen, sizeof(optlen));
+    if (rrc < 0)
+        return kbox_dispatch_errno(-rrc);
+
+    if (optlen > 4096)
+        return kbox_dispatch_errno(EINVAL);
+
+    uint8_t optval[4096];
+    unsigned int out_len = optlen;
+
+    long ret = kbox_lkl_getsockopt(ctx->sysnrs, lkl_fd, level, optname, optval,
+                                   &out_len);
+    if (ret < 0)
+        return kbox_dispatch_from_lkl(ret);
+
+    /* Write min(out_len, optlen) to avoid leaking stack data. */
+    unsigned int write_len = out_len < optlen ? out_len : optlen;
+    int wrc = kbox_vm_write(pid, optval_ptr, optval, write_len);
+    if (wrc < 0)
+        return kbox_dispatch_errno(-wrc);
+    wrc = kbox_vm_write(pid, optlen_ptr, &out_len, sizeof(out_len));
+    if (wrc < 0)
+        return kbox_dispatch_errno(-wrc);
+
+    return kbox_dispatch_value(0);
+}
+
+/* ------------------------------------------------------------------ */
+/* forward_setsockopt                                                 */
+/* ------------------------------------------------------------------ */
+
+static struct kbox_dispatch forward_setsockopt(
+    const struct kbox_seccomp_notif *notif,
+    struct kbox_supervisor_ctx *ctx)
+{
+    long fd = to_c_long_arg(notif->data.args[0]);
+    long lkl_fd = resolve_lkl_socket(ctx, fd);
+    if (lkl_fd < 0)
+        return kbox_dispatch_continue();
+
+    pid_t pid = notif->pid;
+    long level = to_c_long_arg(notif->data.args[1]);
+    long optname = to_c_long_arg(notif->data.args[2]);
+    uint64_t optval_ptr = notif->data.args[3];
+    long optlen = to_c_long_arg(notif->data.args[4]);
+
+    if (optlen < 0 || optlen > 4096)
+        return kbox_dispatch_errno(EINVAL);
+
+    uint8_t optval[4096] = {0};
+    if (optval_ptr != 0 && optlen > 0) {
+        int rrc = kbox_vm_read(pid, optval_ptr, optval, (size_t) optlen);
+        if (rrc < 0)
+            return kbox_dispatch_errno(-rrc);
+    }
+
+    long ret = kbox_lkl_setsockopt(ctx->sysnrs, lkl_fd, level, optname,
+                                   optval_ptr ? optval : NULL, optlen);
+    return kbox_dispatch_from_lkl(ret);
+}
+
+/* ------------------------------------------------------------------ */
+/* forward_getsockname / forward_getpeername                          */
+/* ------------------------------------------------------------------ */
+
+typedef long (*sockaddr_query_fn)(const struct kbox_sysnrs *s,
+                                  long fd,
+                                  void *addr,
+                                  void *addrlen);
+
+static struct kbox_dispatch forward_sockaddr_query(
+    const struct kbox_seccomp_notif *notif,
+    struct kbox_supervisor_ctx *ctx,
+    sockaddr_query_fn query)
+{
+    long fd = to_c_long_arg(notif->data.args[0]);
+    long lkl_fd = resolve_lkl_socket(ctx, fd);
+    if (lkl_fd < 0)
+        return kbox_dispatch_continue();
+
+    pid_t pid = notif->pid;
+    uint64_t addr_ptr = notif->data.args[1];
+    uint64_t len_ptr = notif->data.args[2];
+
+    if (addr_ptr == 0 || len_ptr == 0)
+        return kbox_dispatch_errno(EFAULT);
+
+    unsigned int addrlen;
+    int rrc = kbox_vm_read(pid, len_ptr, &addrlen, sizeof(addrlen));
+    if (rrc < 0)
+        return kbox_dispatch_errno(-rrc);
+
+    if (addrlen > 4096)
+        addrlen = 4096;
+
+    uint8_t addr[4096];
+    unsigned int out_len = addrlen;
+
+    long ret = query(ctx->sysnrs, lkl_fd, addr, &out_len);
+    if (ret < 0)
+        return kbox_dispatch_from_lkl(ret);
+
+    unsigned int write_len = out_len < addrlen ? out_len : addrlen;
+    int wrc = kbox_vm_write(pid, addr_ptr, addr, write_len);
+    if (wrc < 0)
+        return kbox_dispatch_errno(-wrc);
+    wrc = kbox_vm_write(pid, len_ptr, &out_len, sizeof(out_len));
+    if (wrc < 0)
+        return kbox_dispatch_errno(-wrc);
+
+    return kbox_dispatch_value(0);
+}
+
+static struct kbox_dispatch forward_getsockname(
+    const struct kbox_seccomp_notif *notif,
+    struct kbox_supervisor_ctx *ctx)
+{
+    return forward_sockaddr_query(notif, ctx, kbox_lkl_getsockname);
+}
+
+static struct kbox_dispatch forward_getpeername(
+    const struct kbox_seccomp_notif *notif,
+    struct kbox_supervisor_ctx *ctx)
+{
+    return forward_sockaddr_query(notif, ctx, kbox_lkl_getpeername);
+}
+
+/* ------------------------------------------------------------------ */
+/* forward_shutdown                                                   */
+/* ------------------------------------------------------------------ */
+
+static struct kbox_dispatch forward_shutdown(
+    const struct kbox_seccomp_notif *notif,
+    struct kbox_supervisor_ctx *ctx)
+{
+    long fd = to_c_long_arg(notif->data.args[0]);
+    long lkl_fd = resolve_lkl_socket(ctx, fd);
+    if (lkl_fd < 0)
+        return kbox_dispatch_continue();
+
+    long how = to_c_long_arg(notif->data.args[1]);
+    long ret = kbox_lkl_shutdown(ctx->sysnrs, lkl_fd, how);
+    return kbox_dispatch_from_lkl(ret);
+}
+
+/* ------------------------------------------------------------------ */
+/* forward_sendto / forward_recvfrom / forward_sendmsg / forward_recvmsg */
+/* ------------------------------------------------------------------ */
+
+/*
+ * forward_sendto: for shadow sockets with a destination address,
+ * forward the data + address directly to the LKL socket.
+ * This is needed for unconnected UDP (DNS resolver uses sendto
+ * with sockaddr_in without prior connect).
+ *
+ * sendto(fd, buf, len, flags, dest_addr, addrlen)
+ *   args[0]=fd, args[1]=buf, args[2]=len, args[3]=flags,
+ *   args[4]=dest_addr, args[5]=addrlen
+ */
+static struct kbox_dispatch forward_sendto(
+    const struct kbox_seccomp_notif *notif,
+    struct kbox_supervisor_ctx *ctx)
+{
+    long fd = to_c_long_arg(notif->data.args[0]);
+    long lkl_fd = resolve_lkl_socket(ctx, fd);
+    if (lkl_fd < 0)
+        return kbox_dispatch_continue();
+
+    uint64_t dest_ptr = notif->data.args[4];
+    if (dest_ptr == 0)
+        return kbox_dispatch_continue(); /* no dest addr: stream data path */
+
+    /* Has a destination address: forward via LKL sendto. */
+    pid_t pid = notif->pid;
+    uint64_t buf_ptr = notif->data.args[1];
+    int64_t len_raw = to_c_long_arg(notif->data.args[2]);
+    long flags = to_c_long_arg(notif->data.args[3]);
+    int64_t addrlen_raw = to_c_long_arg(notif->data.args[5]);
+
+    if (len_raw < 0 || addrlen_raw < 0)
+        return kbox_dispatch_errno(EINVAL);
+    size_t len = (size_t) len_raw;
+    size_t addrlen = (size_t) addrlen_raw;
+
+    if (len > 65536)
+        len = 65536;
+    if (addrlen > 128)
+        return kbox_dispatch_errno(EINVAL);
+
+    uint8_t buf[65536];
+    uint8_t addr[128];
+
+    int rrc = kbox_vm_read(pid, buf_ptr, buf, len);
+    if (rrc < 0)
+        return kbox_dispatch_errno(-rrc);
+    rrc = kbox_vm_read(pid, dest_ptr, addr, addrlen);
+    if (rrc < 0)
+        return kbox_dispatch_errno(-rrc);
+
+    long ret = kbox_lkl_sendto(ctx->sysnrs, lkl_fd, buf, (long) len, flags,
+                               addr, (long) addrlen);
+    return kbox_dispatch_from_lkl(ret);
+}
+
+/*
+ * forward_recvfrom: for shadow sockets, receive data + source address
+ * from the LKL socket and write them back to the tracee.
+ *
+ * recvfrom(fd, buf, len, flags, src_addr, addrlen)
+ *   args[0]=fd, args[1]=buf, args[2]=len, args[3]=flags,
+ *   args[4]=src_addr, args[5]=addrlen
+ */
+static struct kbox_dispatch forward_recvfrom(
+    const struct kbox_seccomp_notif *notif,
+    struct kbox_supervisor_ctx *ctx)
+{
+    long fd = to_c_long_arg(notif->data.args[0]);
+    long lkl_fd = resolve_lkl_socket(ctx, fd);
+    if (lkl_fd < 0)
+        return kbox_dispatch_continue();
+
+    uint64_t src_ptr = notif->data.args[4];
+    if (src_ptr == 0)
+        return kbox_dispatch_continue(); /* no addr buffer: stream path */
+
+    pid_t pid = notif->pid;
+    uint64_t buf_ptr = notif->data.args[1];
+    int64_t len_raw = to_c_long_arg(notif->data.args[2]);
+    long flags = to_c_long_arg(notif->data.args[3]);
+    uint64_t addrlen_ptr = notif->data.args[5];
+
+    if (len_raw < 0)
+        return kbox_dispatch_errno(EINVAL);
+    size_t len = (size_t) len_raw;
+    if (len > 65536)
+        len = 65536;
+
+    unsigned int addrlen = 0;
+    if (addrlen_ptr != 0) {
+        int rrc = kbox_vm_read(pid, addrlen_ptr, &addrlen, sizeof(addrlen));
+        if (rrc < 0)
+            return kbox_dispatch_errno(-rrc);
+    }
+    if (addrlen > 128)
+        addrlen = 128;
+
+    uint8_t buf[65536];
+    uint8_t addr[128];
+    unsigned int out_addrlen = addrlen;
+
+    long ret = kbox_lkl_recvfrom(ctx->sysnrs, lkl_fd, buf, (long) len, flags,
+                                 addr, &out_addrlen);
+    if (ret < 0)
+        return kbox_dispatch_from_lkl(ret);
+
+    int wrc = kbox_vm_write(pid, buf_ptr, buf, (size_t) ret);
+    if (wrc < 0)
+        return kbox_dispatch_errno(-wrc);
+
+    if (src_ptr != 0 && out_addrlen > 0) {
+        unsigned int write_len = out_addrlen < addrlen ? out_addrlen : addrlen;
+        wrc = kbox_vm_write(pid, src_ptr, addr, write_len);
+        if (wrc < 0)
+            return kbox_dispatch_errno(-wrc);
+    }
+    if (addrlen_ptr != 0) {
+        wrc =
+            kbox_vm_write(pid, addrlen_ptr, &out_addrlen, sizeof(out_addrlen));
+        if (wrc < 0)
+            return kbox_dispatch_errno(-wrc);
+    }
+
+    return kbox_dispatch_value(ret);
+}
+
+/*
+ * forward_sendmsg: intercept for shadow sockets so that msg_name
+ * (destination address) reaches the LKL socket.  For non-shadow
+ * sockets or connected stream sockets without msg_name, CONTINUE
+ * lets the host kernel handle the AF_UNIX socketpair write.
+ *
+ * sendmsg(fd, msg, flags)
+ *   args[0]=fd, args[1]=msg_ptr, args[2]=flags
+ *
+ * struct msghdr { void *msg_name; socklen_t msg_namelen;
+ *   struct iovec *msg_iov; size_t msg_iovlen; ... }
+ */
+/* Unreachable: sendmsg is BPF allow-listed for SCM_RIGHTS.
+ * Kept for documentation; will be wired when FD transfer is refactored. */
+__attribute__((unused)) static struct kbox_dispatch forward_sendmsg(
+    const struct kbox_seccomp_notif *notif,
+    struct kbox_supervisor_ctx *ctx)
+{
+    long fd = to_c_long_arg(notif->data.args[0]);
+    long lkl_fd = resolve_lkl_socket(ctx, fd);
+    if (lkl_fd < 0)
+        return kbox_dispatch_continue();
+
+    pid_t pid = notif->pid;
+    uint64_t msg_ptr = notif->data.args[1];
+    long flags = to_c_long_arg(notif->data.args[2]);
+
+    if (msg_ptr == 0)
+        return kbox_dispatch_errno(EFAULT);
+
+    /* Read the msghdr from the tracee. */
+    struct {
+        uint64_t msg_name;
+        uint32_t msg_namelen;
+        uint32_t __pad0;
+        uint64_t msg_iov;
+        uint64_t msg_iovlen;
+        uint64_t msg_control;
+        uint64_t msg_controllen;
+        int msg_flags;
+    } mh;
+    int rrc = kbox_vm_read(pid, msg_ptr, &mh, sizeof(mh));
+    if (rrc < 0)
+        return kbox_dispatch_errno(-rrc);
+
+    /* No destination address: stream data path via CONTINUE. */
+    if (mh.msg_name == 0 || mh.msg_namelen == 0)
+        return kbox_dispatch_continue();
+
+    /* Has destination address: read iov data and address, forward to LKL. */
+    uint8_t addr[128];
+    if (mh.msg_namelen > sizeof(addr))
+        return kbox_dispatch_errno(EINVAL);
+    rrc = kbox_vm_read(pid, mh.msg_name, addr, mh.msg_namelen);
+    if (rrc < 0)
+        return kbox_dispatch_errno(-rrc);
+
+    /* Gather all iovec data into a contiguous buffer. */
+    if (mh.msg_iovlen == 0)
+        return kbox_dispatch_value(0);
+
+    uint8_t buf[65536];
+    size_t total = 0;
+    size_t niov = (size_t) mh.msg_iovlen;
+    if (niov > 64)
+        niov = 64;
+
+    struct {
+        uint64_t iov_base;
+        uint64_t iov_len;
+    } iovs[64];
+    size_t iov_bytes = niov * sizeof(iovs[0]);
+    rrc = kbox_vm_read(pid, mh.msg_iov, iovs, iov_bytes);
+    if (rrc < 0)
+        return kbox_dispatch_errno(-rrc);
+
+    for (size_t v = 0; v < niov && total < sizeof(buf); v++) {
+        size_t chunk = (size_t) iovs[v].iov_len;
+        if (total + chunk > sizeof(buf))
+            chunk = sizeof(buf) - total;
+        if (chunk > 0 && iovs[v].iov_base != 0) {
+            rrc = kbox_vm_read(pid, iovs[v].iov_base, buf + total, chunk);
+            if (rrc < 0)
+                return kbox_dispatch_errno(-rrc);
+            total += chunk;
+        }
+    }
+
+    long ret = kbox_lkl_sendto(ctx->sysnrs, lkl_fd, buf, (long) total, flags,
+                               addr, (long) mh.msg_namelen);
+    return kbox_dispatch_from_lkl(ret);
+}
+
+/*
+ * forward_recvmsg: intercept for shadow sockets so that msg_name
+ * (source address) is populated from the LKL socket, not the
+ * AF_UNIX socketpair.
+ *
+ * recvmsg(fd, msg, flags)
+ *   args[0]=fd, args[1]=msg_ptr, args[2]=flags
+ */
+static struct kbox_dispatch forward_recvmsg(
+    const struct kbox_seccomp_notif *notif,
+    struct kbox_supervisor_ctx *ctx)
+{
+    long fd = to_c_long_arg(notif->data.args[0]);
+    long lkl_fd = resolve_lkl_socket(ctx, fd);
+    if (lkl_fd < 0)
+        return kbox_dispatch_continue();
+
+    pid_t pid = notif->pid;
+    uint64_t msg_ptr = notif->data.args[1];
+    long flags = to_c_long_arg(notif->data.args[2]);
+
+    if (msg_ptr == 0)
+        return kbox_dispatch_errno(EFAULT);
+
+    struct {
+        uint64_t msg_name;
+        uint32_t msg_namelen;
+        uint32_t __pad0;
+        uint64_t msg_iov;
+        uint64_t msg_iovlen;
+        uint64_t msg_control;
+        uint64_t msg_controllen;
+        int msg_flags;
+    } mh;
+    int rrc = kbox_vm_read(pid, msg_ptr, &mh, sizeof(mh));
+    if (rrc < 0)
+        return kbox_dispatch_errno(-rrc);
+
+    /* No msg_name: for connected stream sockets, CONTINUE via socketpair. */
+    if (mh.msg_name == 0 || mh.msg_namelen == 0)
+        return kbox_dispatch_continue();
+
+    /* Read all iovecs to determine total buffer capacity. */
+    if (mh.msg_iovlen == 0)
+        return kbox_dispatch_value(0);
+
+    size_t niov = (size_t) mh.msg_iovlen;
+    if (niov > 64)
+        niov = 64;
+
+    struct {
+        uint64_t iov_base;
+        uint64_t iov_len;
+    } iovs[64];
+    rrc = kbox_vm_read(pid, mh.msg_iov, iovs, niov * sizeof(iovs[0]));
+    if (rrc < 0)
+        return kbox_dispatch_errno(-rrc);
+
+    size_t total_cap = 0;
+    for (size_t v = 0; v < niov; v++)
+        total_cap += (size_t) iovs[v].iov_len;
+    if (total_cap > 65536)
+        total_cap = 65536;
+
+    uint8_t buf[65536];
+    uint8_t addr[128];
+    unsigned int addrlen = mh.msg_namelen < sizeof(addr)
+                               ? mh.msg_namelen
+                               : (unsigned int) sizeof(addr);
+    unsigned int out_addrlen = addrlen;
+
+    long ret = kbox_lkl_recvfrom(ctx->sysnrs, lkl_fd, buf, (long) total_cap,
+                                 flags, addr, &out_addrlen);
+    if (ret < 0)
+        return kbox_dispatch_from_lkl(ret);
+
+    /* Scatter received data across tracee iov buffers. */
+    size_t written = 0;
+    for (size_t v = 0; v < niov && written < (size_t) ret; v++) {
+        size_t chunk = (size_t) ret - written;
+        if (chunk > (size_t) iovs[v].iov_len)
+            chunk = (size_t) iovs[v].iov_len;
+        if (chunk > 0 && iovs[v].iov_base != 0) {
+            int wrc2 =
+                kbox_vm_write(pid, iovs[v].iov_base, buf + written, chunk);
+            if (wrc2 < 0)
+                return kbox_dispatch_errno(-wrc2);
+            written += chunk;
+        }
+    }
+
+    /* Write source address to tracee msg_name. */
+    if (out_addrlen > 0) {
+        unsigned int write_len =
+            out_addrlen < mh.msg_namelen ? out_addrlen : mh.msg_namelen;
+        int awrc = kbox_vm_write(pid, mh.msg_name, addr, write_len);
+        if (awrc < 0)
+            return kbox_dispatch_errno(-awrc);
+    }
+
+    /* Update msg_namelen in the msghdr. */
+    int nwrc = kbox_vm_write(pid, msg_ptr + 8 /* offset of msg_namelen */,
+                             &out_addrlen, sizeof(out_addrlen));
+    if (nwrc < 0)
+        return kbox_dispatch_errno(-nwrc);
+
+    return kbox_dispatch_value(ret);
 }
 
 /* ------------------------------------------------------------------ */
@@ -3671,6 +4616,11 @@ static struct kbox_dispatch forward_execve(
         fprintf(stderr, "kbox: exec %s -> /proc/self/fd/%d\n", pathbuf,
                 tracee_exec_fd);
 
+    /* Clean up CLOEXEC entries before the kernel exec closes them.
+     * Without this, stale shadow socket mappings survive exec and
+     * can collide with FD numbers reused by the new image. */
+    kbox_fd_table_close_cloexec(ctx->fd_table, ctx->sysnrs);
+
     return kbox_dispatch_continue();
 }
 
@@ -3932,8 +4882,28 @@ struct kbox_dispatch kbox_dispatch_syscall(struct kbox_supervisor_ctx *ctx,
 
     if (nr == h->socket)
         return forward_socket(notif, ctx);
+    if (nr == h->bind)
+        return forward_bind(notif, ctx);
     if (nr == h->connect)
         return forward_connect(notif, ctx);
+    if (nr == h->sendto)
+        return forward_sendto(notif, ctx);
+    if (nr == h->recvfrom)
+        return forward_recvfrom(notif, ctx);
+    /* sendmsg: BPF allow-listed (SCM_RIGHTS), never reaches here.
+     * Shadow socket callers should use sendto for addressed datagrams. */
+    if (nr == h->recvmsg)
+        return forward_recvmsg(notif, ctx);
+    if (nr == h->getsockopt)
+        return forward_getsockopt(notif, ctx);
+    if (nr == h->setsockopt)
+        return forward_setsockopt(notif, ctx);
+    if (nr == h->getsockname)
+        return forward_getsockname(notif, ctx);
+    if (nr == h->getpeername)
+        return forward_getpeername(notif, ctx);
+    if (nr == h->shutdown)
+        return forward_shutdown(notif, ctx);
 
     /* === I/O Extended === */
 

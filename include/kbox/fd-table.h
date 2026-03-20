@@ -18,12 +18,16 @@ struct kbox_sysnrs; /* forward declaration */
 
 #define KBOX_FD_BASE 32768
 #define KBOX_FD_TABLE_MAX 4096
-#define KBOX_LOW_FD_MAX 1024 /* redirect slots for FDs 0..1023 (dup2 targets) \
-                              */
+#define KBOX_LOW_FD_MAX                                   \
+    1024 /* redirect slots for FDs 0..1023 (dup2 targets) \
+          */
 
 struct kbox_fd_entry {
     long lkl_fd;    /* LKL-internal FD, -1 if slot is free */
-    long host_fd;   /* host memfd shadow, -1 if none */
+    long host_fd;   /* host memfd shadow / tracee FD number, -1 if none */
+    int shadow_sp;  /* supervisor's dup of shadow socket sp[1], -1 if none.
+                     * Kept alive so dup/dup2/dup3 can inject new copies
+                     * into the tracee via ADDFD. */
     int mirror_tty; /* 1 if this FD mirrors a host TTY */
     int cloexec;    /* O_CLOEXEC tracking */
 };

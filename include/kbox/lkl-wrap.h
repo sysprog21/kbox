@@ -318,4 +318,103 @@ long kbox_lkl_utimensat(const struct kbox_sysnrs *s,
                         const void *times,
                         long flags);
 
+/* --- Socket wrappers --- */
+
+long kbox_lkl_bind(const struct kbox_sysnrs *s,
+                   long fd,
+                   const void *addr,
+                   long addrlen);
+long kbox_lkl_getsockopt(const struct kbox_sysnrs *s,
+                         long fd,
+                         long level,
+                         long optname,
+                         void *optval,
+                         void *optlen);
+long kbox_lkl_setsockopt(const struct kbox_sysnrs *s,
+                         long fd,
+                         long level,
+                         long optname,
+                         const void *optval,
+                         long optlen);
+long kbox_lkl_getsockname(const struct kbox_sysnrs *s,
+                          long fd,
+                          void *addr,
+                          void *addrlen);
+long kbox_lkl_getpeername(const struct kbox_sysnrs *s,
+                          long fd,
+                          void *addr,
+                          void *addrlen);
+long kbox_lkl_shutdown(const struct kbox_sysnrs *s, long fd, long how);
+long kbox_lkl_sendto(const struct kbox_sysnrs *s,
+                     long fd,
+                     const void *buf,
+                     long len,
+                     long flags,
+                     const void *addr,
+                     long addrlen);
+long kbox_lkl_recvfrom(const struct kbox_sysnrs *s,
+                       long fd,
+                       void *buf,
+                       long len,
+                       long flags,
+                       void *addr,
+                       void *addrlen);
+
+/* Forward declarations for netdev ops. */
+struct iovec;
+struct lkl_netdev;
+
+/* --- LKL network device FFI --- */
+
+/*
+ * LKL virtio-net device operations.  Must match LKL's struct lkl_dev_net_ops
+ * in tools/lkl/include/lkl_host.h.  We declare a compatible struct rather
+ * than pulling in the full LKL headers.
+ *
+ * iov-based TX/RX: each callback receives a scatter/gather array.
+ * poll: returns a bitmask of LKL_DEV_NET_POLL_{RX,TX,HUP}.
+ * poll_hup: wakes the poll callback (e.g. write a byte to a wakeup pipe).
+ * free: cleanup on device removal.
+ */
+struct lkl_dev_net_ops {
+    int (*tx)(struct lkl_netdev *nd, struct iovec *iov, int cnt);
+    int (*rx)(struct lkl_netdev *nd, struct iovec *iov, int cnt);
+    int (*poll)(struct lkl_netdev *nd);
+    void (*poll_hup)(struct lkl_netdev *nd);
+    void (*free)(struct lkl_netdev *nd);
+};
+
+struct lkl_netdev {
+    struct lkl_dev_net_ops *ops;
+    int id;
+    int has_vnet_hdr;
+    unsigned char mac[6];
+};
+
+struct lkl_netdev_args {
+    unsigned char mac[6];
+    unsigned offload;
+};
+
+#define LKL_DEV_NET_POLL_RX 1
+#define LKL_DEV_NET_POLL_TX 2
+#define LKL_DEV_NET_POLL_HUP 4
+
+extern int lkl_netdev_add(struct lkl_netdev *nd, struct lkl_netdev_args *args);
+extern int lkl_netdev_get_ifindex(int id);
+extern int lkl_if_up(int ifindex);
+extern int lkl_if_set_ipv4(int ifindex,
+                           unsigned int addr,
+                           unsigned int netmask_len);
+extern int lkl_set_ipv4_gateway(unsigned int addr);
+extern int lkl_if_add_linklocal(int ifindex,
+                                int af,
+                                void *addr,
+                                int netprefix_len);
+extern int lkl_if_add_gateway(int ifindex, int af, void *gwaddr);
+extern int lkl_if_set_ipv4_gateway(int ifindex,
+                                   unsigned int src_addr,
+                                   unsigned int src_masklen,
+                                   unsigned int via_addr);
+
 #endif /* KBOX_LKL_WRAP_H */

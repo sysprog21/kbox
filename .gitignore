@@ -6,6 +6,7 @@ alpine.ext4
 deps/
 lkl-x86_64/
 lkl-aarch64/
+externals/minislirp/
 target/
 tests/guest/*-test
 !tests/guest/*-test.c

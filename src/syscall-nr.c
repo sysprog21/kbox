@@ -45,6 +45,16 @@ const struct kbox_sysnrs SYSNRS_X86_64 = {
     .fcntl = 72,
     .socket = 41,
     .connect = 42,
+    .bind = 49,
+    .sendto = 44,
+    .recvfrom = 45,
+    .sendmsg = 46,
+    .recvmsg = 47,
+    .getsockopt = 55,
+    .setsockopt = 54,
+    .getsockname = 51,
+    .getpeername = 52,
+    .shutdown = 48,
     .dup = 32,
     .dup3 = 292,
     .close = 3,
@@ -121,6 +131,16 @@ const struct kbox_sysnrs SYSNRS_GENERIC = {
     .fcntl = 25,
     .socket = 198,
     .connect = 203,
+    .bind = 200,
+    .sendto = 206,
+    .recvfrom = 207,
+    .sendmsg = 211,
+    .recvmsg = 212,
+    .getsockopt = 209,
+    .setsockopt = 208,
+    .getsockname = 204,
+    .getpeername = 205,
+    .shutdown = 210,
     .dup = 23,
     .dup3 = 24,
     .close = 57,
@@ -198,6 +218,14 @@ const struct kbox_host_nrs HOST_NRS_X86_64 = {
     .listen = 50,
     .accept = 43,
     .accept4 = 288,
+    .sendto = 44,
+    .recvfrom = 45,
+    .recvmsg = 47,
+    .getsockopt = 55,
+    .setsockopt = 54,
+    .getsockname = 51,
+    .getpeername = 52,
+    .shutdown = 48,
     .exit = 60,
     .exit_group = 231,
     .fcntl = 72,
@@ -359,6 +387,14 @@ const struct kbox_host_nrs HOST_NRS_AARCH64 = {
     .listen = 201,
     .accept = 202,
     .accept4 = 242,
+    .sendto = 206,
+    .recvfrom = 207,
+    .recvmsg = 212,
+    .getsockopt = 209,
+    .setsockopt = 208,
+    .getsockname = 204,
+    .getpeername = 205,
+    .shutdown = 210,
     .exit = 93,
     .exit_group = 94,
     .fcntl = 25,
@@ -589,6 +625,14 @@ const char *syscall_name_from_nr(const struct kbox_host_nrs *h, int nr)
     CHECK(listen);
     CHECK(accept);
     CHECK(accept4);
+    CHECK(sendto);
+    CHECK(recvfrom);
+    CHECK(recvmsg);
+    CHECK(getsockopt);
+    CHECK(setsockopt);
+    CHECK(getsockname);
+    CHECK(getpeername);
+    CHECK(shutdown);
     CHECK(exit);
     CHECK(exit_group);
     CHECK(fcntl);

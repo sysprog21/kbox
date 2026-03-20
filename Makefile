@@ -28,6 +28,7 @@ LDLIBS   = -llkl -lpthread -ldl -lm -lrt
 # Optional: SLIRP networking (set KBOX_HAS_SLIRP=1 to enable)
 ifdef KBOX_HAS_SLIRP
   SLIRP_DIR  = externals/minislirp
+  SLIRP_HDR  = $(SLIRP_DIR)/src/libslirp.h
   CFLAGS    += -DKBOX_HAS_SLIRP -I$(SLIRP_DIR)/src
   SLIRP_SRCS = $(wildcard $(SLIRP_DIR)/src/*.c)
   SLIRP_OBJS = $(SLIRP_SRCS:.c=.o)
@@ -110,7 +111,7 @@ ROOTFS       = alpine.ext4
 
 # ---- Top-level targets ----
 
-.PHONY: all clean check check-unit check-integration check-stress guest-bins stress-bins rootfs fetch-lkl install-hooks web-assets
+.PHONY: all clean check check-unit check-integration check-stress guest-bins stress-bins rootfs fetch-lkl fetch-minislirp install-hooks web-assets
 
 all: $(TARGET)
 ifneq ($(wildcard .git),)
@@ -131,6 +132,25 @@ $(TARGET): $(OBJS) | $(LKL_LIB)
 $(LKL_LIB):
 	@echo "LKL library not found at $(LKL_DIR). Fetching..."
 	./scripts/fetch-lkl.sh
+
+# Auto-fetch minislirp if missing (shallow clone, no submodule).
+# $(wildcard) evaluates at parse time, so if minislirp has not been
+# fetched yet SLIRP_SRCS is empty.  Guard: fetch and re-exec make so
+# the wildcard picks up the newly-cloned sources.
+ifdef KBOX_HAS_SLIRP
+# Auto-fetch minislirp if the header is missing and a build target
+# was requested (skip for clean/fetch-only goals).
+ifneq ($(filter clean,$(MAKECMDGOALS)),clean)
+ifeq ($(wildcard $(SLIRP_HDR)),)
+$(shell ./scripts/fetch-minislirp.sh >&2)
+SLIRP_SRCS = $(wildcard $(SLIRP_DIR)/src/*.c)
+SLIRP_OBJS = $(SLIRP_SRCS:.c=.o)
+endif
+endif
+
+fetch-minislirp:
+	./scripts/fetch-minislirp.sh
+endif
 
 # ---- Test targets ----
 
@@ -211,7 +231,7 @@ $(SRC_DIR)/cli.o: include/kbox/cli.h
 $(SRC_DIR)/probe.o: include/kbox/probe.h include/kbox/seccomp-defs.h
 $(SRC_DIR)/image.o: include/kbox/image.h include/kbox/lkl-wrap.h include/kbox/mount.h include/kbox/net.h include/kbox/identity.h include/kbox/probe.h include/kbox/seccomp.h
 $(SRC_DIR)/shadow-fd.o: include/kbox/shadow-fd.h include/kbox/lkl-wrap.h include/kbox/syscall-nr.h
-$(SRC_DIR)/seccomp-dispatch.o: include/kbox/seccomp.h include/kbox/seccomp-defs.h include/kbox/fd-table.h include/kbox/lkl-wrap.h include/kbox/procmem.h include/kbox/path.h include/kbox/identity.h include/kbox/shadow-fd.h
+$(SRC_DIR)/seccomp-dispatch.o: include/kbox/seccomp.h include/kbox/seccomp-defs.h include/kbox/fd-table.h include/kbox/lkl-wrap.h include/kbox/procmem.h include/kbox/path.h include/kbox/identity.h include/kbox/shadow-fd.h include/kbox/net.h
 $(SRC_DIR)/seccomp-supervisor.o: include/kbox/seccomp.h include/kbox/seccomp-defs.h include/kbox/syscall-nr.h
 $(SRC_DIR)/seccomp-bpf.o: include/kbox/seccomp.h include/kbox/seccomp-defs.h include/kbox/syscall-nr.h
 $(SRC_DIR)/seccomp-notify.o: include/kbox/seccomp.h include/kbox/seccomp-defs.h

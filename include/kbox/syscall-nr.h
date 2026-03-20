@@ -32,6 +32,8 @@ struct kbox_sysnrs {
 
     /* File I/O */
     long openat, openat2, fcntl, socket, connect;
+    long bind, sendto, recvfrom, sendmsg, recvmsg;
+    long getsockopt, setsockopt, getsockname, getpeername, shutdown;
 
     /* FD manipulation */
     long dup, dup3, close;
@@ -87,6 +89,8 @@ struct kbox_host_nrs {
     int fchmodat, fchownat;
     int close;
     int sendmsg, socket, connect, bind, listen, accept, accept4;
+    int sendto, recvfrom, recvmsg;
+    int getsockopt, setsockopt, getsockname, getpeername, shutdown;
     int exit, exit_group;
     int fcntl, dup, dup2, dup3;
     int read, write, pread64, lseek;

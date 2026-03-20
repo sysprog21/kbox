@@ -295,6 +295,20 @@ int kbox_install_seccomp_listener(const struct kbox_host_nrs *h)
             KBOX_BPF_RET | KBOX_BPF_K, KBOX_SECCOMP_RET_ALLOW);    \
     } while (0)
 
+    /*
+     * sendmsg MUST stay allow-listed: the child's pre-exec FD transfer
+     * uses sendmsg(SCM_RIGHTS) before the supervisor loop starts.
+     * Removing it deadlocks the child/parent handshake.
+     *
+     * Consequence: guest sendmsg() on shadow sockets bypasses the
+     * supervisor and operates on the AF_UNIX socketpair, losing
+     * msg_name addressing.  Callers that need addressed datagrams
+     * must use sendto() (intercepted via forward_sendto).
+     * recvmsg() IS intercepted and returns correct source addresses.
+     *
+     * To fix: restructure supervisor startup to pass the listener FD
+     * via pidfd_getfd or /proc/<pid>/fd instead of SCM_RIGHTS.
+     */
     EMIT_ALLOW(h->sendmsg);
     EMIT_ALLOW(h->exit);
     EMIT_ALLOW(h->exit_group);

@@ -37,12 +37,14 @@ void kbox_fd_table_init(struct kbox_fd_table *t)
     for (i = 0; i < KBOX_FD_TABLE_MAX; i++) {
         t->entries[i].lkl_fd = -1;
         t->entries[i].host_fd = -1;
+        t->entries[i].shadow_sp = -1;
         t->entries[i].mirror_tty = 0;
         t->entries[i].cloexec = 0;
     }
     for (i = 0; i < KBOX_LOW_FD_MAX; i++) {
         t->low_fds[i].lkl_fd = -1;
         t->low_fds[i].host_fd = -1;
+        t->low_fds[i].shadow_sp = -1;
         t->low_fds[i].mirror_tty = 0;
         t->low_fds[i].cloexec = 0;
     }
@@ -69,6 +71,7 @@ long kbox_fd_table_insert(struct kbox_fd_table *t, long lkl_fd, int mirror_tty)
 
             t->entries[idx].lkl_fd = lkl_fd;
             t->entries[idx].host_fd = -1;
+            t->entries[idx].shadow_sp = -1;
             t->entries[idx].mirror_tty = mirror_tty;
             t->entries[idx].cloexec = 0;
             t->next_fd = vfd + 1;
@@ -83,6 +86,7 @@ long kbox_fd_table_insert(struct kbox_fd_table *t, long lkl_fd, int mirror_tty)
 
             t->entries[idx].lkl_fd = lkl_fd;
             t->entries[idx].host_fd = -1;
+            t->entries[idx].shadow_sp = -1;
             t->entries[idx].mirror_tty = mirror_tty;
             t->entries[idx].cloexec = 0;
             t->next_fd = vfd + 1;
@@ -104,6 +108,7 @@ int kbox_fd_table_insert_at(struct kbox_fd_table *t,
 
     e->lkl_fd = lkl_fd;
     e->host_fd = -1;
+    e->shadow_sp = -1;
     e->mirror_tty = mirror_tty;
     e->cloexec = 0;
 
@@ -132,10 +137,16 @@ long kbox_fd_table_remove(struct kbox_fd_table *t, long fd)
 
     old = e->lkl_fd;
 #ifndef KBOX_UNIT_TEST
-    if (e->host_fd >= 0)
+    /* For shadow sockets (shadow_sp >= 0), host_fd is a tracee-namespace
+     * FD number from ADDFD, NOT a supervisor-owned FD.  Don't close it
+     * in the supervisor -- it would close an unrelated local FD. */
+    if (e->host_fd >= 0 && e->shadow_sp < 0)
         close((int) e->host_fd);
+    if (e->shadow_sp >= 0)
+        close(e->shadow_sp);
 #endif
     e->host_fd = -1;
+    e->shadow_sp = -1;
     e->lkl_fd = -1;
     e->mirror_tty = 0;
     e->cloexec = 0;
@@ -170,19 +181,45 @@ static void clear_entry(struct kbox_fd_entry *e)
 {
     e->lkl_fd = -1;
     e->host_fd = -1;
+    e->shadow_sp = -1;
     e->mirror_tty = 0;
     e->cloexec = 0;
 }
 
 #ifndef KBOX_UNIT_TEST
-static void close_cloexec_entry(struct kbox_fd_entry *e,
+/* Check if any other entry in the table references the same lkl_fd. */
+static int lkl_fd_has_other_ref(const struct kbox_fd_table *t,
+                                const struct kbox_fd_entry *skip,
+                                long lkl_fd)
+{
+    long i;
+    for (i = 0; i < KBOX_FD_TABLE_MAX; i++)
+        if (&t->entries[i] != skip && t->entries[i].lkl_fd == lkl_fd)
+            return 1;
+    for (i = 0; i < KBOX_LOW_FD_MAX; i++)
+        if (&t->low_fds[i] != skip && t->low_fds[i].lkl_fd == lkl_fd)
+            return 1;
+    return 0;
+}
+
+static void close_cloexec_entry(struct kbox_fd_table *t,
+                                struct kbox_fd_entry *e,
                                 const struct kbox_sysnrs *s)
 {
     if (e->lkl_fd != -1 && e->cloexec) {
-        kbox_lkl_close(s, e->lkl_fd);
-        if (e->host_fd >= 0) {
+        /* Only close the LKL socket if no other entry shares it
+         * (handles dup'd shadow sockets where multiple entries
+         * reference the same lkl_fd). */
+        if (!lkl_fd_has_other_ref(t, e, e->lkl_fd))
+            kbox_lkl_close(s, e->lkl_fd);
+        /* Shadow sockets: host_fd is tracee-namespace, don't close. */
+        if (e->host_fd >= 0 && e->shadow_sp < 0) {
             close((int) e->host_fd);
             e->host_fd = -1;
+        }
+        if (e->shadow_sp >= 0) {
+            close(e->shadow_sp);
+            e->shadow_sp = -1;
         }
         clear_entry(e);
     }
@@ -194,9 +231,9 @@ void kbox_fd_table_close_cloexec(struct kbox_fd_table *t,
     long i;
 
     for (i = 0; i < KBOX_LOW_FD_MAX; i++)
-        close_cloexec_entry(&t->low_fds[i], s);
+        close_cloexec_entry(t, &t->low_fds[i], s);
     for (i = 0; i < KBOX_FD_TABLE_MAX; i++)
-        close_cloexec_entry(&t->entries[i], s);
+        close_cloexec_entry(t, &t->entries[i], s);
 }
 #endif
 
