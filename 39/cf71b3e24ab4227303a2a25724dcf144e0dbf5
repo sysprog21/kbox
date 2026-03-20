@@ -1,0 +1,29 @@
+Makefile
+  bdabec38566f3a10 141-143,149
+scripts/fetch-minislirp.sh
+  bdabec38566f3a10 14-18
+src/seccomp-dispatch.c
+  bdabec38566f3a10 859-861,863-864,911
+src/net-slirp.c
+  bdabec38566f3a10 953,971
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.15",
+  "base_commit_sha": "39cf71b3e24ab4227303a2a25724dcf144e0dbf5",
+  "prompts": {
+    "bdabec38566f3a10": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "59c5e869-64a8-4513-be56-597f3bae5350",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 45,
+      "total_deletions": 93,
+      "accepted_lines": 25,
+      "overriden_lines": 0
+    }
+  }
+}
