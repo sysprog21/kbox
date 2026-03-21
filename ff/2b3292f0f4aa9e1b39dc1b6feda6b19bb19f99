@@ -1,0 +1,23 @@
+src/mount.c
+  d5c0376a16c7c709 101-104,106-107,110-111
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.15",
+  "base_commit_sha": "ff2b3292f0f4aa9e1b39dc1b6feda6b19bb19f99",
+  "prompts": {
+    "d5c0376a16c7c709": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "823c0c60-ed31-4873-bf39-3cbc5b41fac1",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 6,
+      "total_deletions": 2,
+      "accepted_lines": 8,
+      "overriden_lines": 0
+    }
+  }
+}
