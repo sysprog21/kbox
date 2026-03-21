@@ -1,0 +1,21 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.15",
+  "base_commit_sha": "2e2f7917cf01dc4e49d04eb7aa76cd7ad9cff68c",
+  "prompts": {
+    "276f4c008f1f32d9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a2dd6f5e-6c49-44ab-8252-9b56129ffad8",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 16,
+      "total_deletions": 6,
+      "accepted_lines": 8,
+      "overriden_lines": 0
+    }
+  }
+}
