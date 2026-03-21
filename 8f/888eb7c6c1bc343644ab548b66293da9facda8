@@ -1,0 +1,133 @@
+include/kbox/path.h
+  d5c0376a16c7c709 12
+src/seccomp-dispatch.c
+  d5c0376a16c7c709 195-197,253-254,257,277,280,536-537,546-548,557-559,716,738-739,742,758-759,774,847,908-911,1012,1030-1033,1143-1146,1180,2226,2254,2636,2707,2872,2973,2975,2977,3068,3099-3100,3103,3105,3137,3140-3141,3192-3195,3205,3706,3790-3793,3804-3805,3814-3815,3822-3823,3833-3835,3856,3859-3860,3898-3899,3906-3908,3914,3917,3920-3921,3932-3933,3974-3975,3990,4015-4018,4030,4064-4065,4075-4078,4081-4084,4087-4088,4155-4156,4162,4215,4224,4248,4271,4278,4291,4310,4319,4338,4357,4370,4389,4396,4409,4420,4448,4471,4524,4541,4550,4569,4589,4609,4633,4658,4676,4697,4710,4723-4724,4745,4772,4790,4808,4841,4848
+  e13803fdcab3cc1d 1606-1607
+  4b46ea18c128ef93 210-251,303-418,427-430,442,448,457-460,465,476,489,498,500-501,517,1373-1375,1378,1401,1404,1418-1420,1423,1440,1443,1457-1459,1462,1491,1500,1510-1511,1581-1583,1586,1601-1603,1621-1624,1627-1628,1631,1633,1662-1664,1667,1684-1686,1689,1778-1779,1799,1802,1814-1815,1831-1832,1847-1848,1862-1863,1878-1879,1883,1898-1899,1915-1916
+src/elf.c
+  d5c0376a16c7c709 68
+src/main.c
+  d5c0376a16c7c709 11-12
+src/fd-table.c
+  04a4706e72af7fdc 16,178
+  d5c0376a16c7c709 7,15,275-290
+src/net-slirp.c
+  d5c0376a16c7c709 38,40-41,160
+src/seccomp-notify.c
+  d5c0376a16c7c709 17
+spec.md
+  d5c0376a16c7c709 9-13,15-17,23-24,33,38-44,47-53,55-59,81,98,109-110,116,126-127,131-150,170-178,187-188,191-192,201-203,205-210,215,217-218,222,225,227-232,240-241,248,251,253-254,263-264,269-273,280,288,290-291,294,300-301,304,306,319,322,328,331,338,340,347-349,352-354,361,367-368,372-376,378,383-391,396
+src/shadow-fd.c
+  d5c0376a16c7c709 7,17-19,77-80
+src/identity.c
+  d5c0376a16c7c709 85,93
+src/seccomp-bpf.c
+  d5c0376a16c7c709 6-8,10,32,38,41,47,52,58,65,69,82,91,93
+tests/unit/test-fd-table.c
+  d5c0376a16c7c709 3
+src/web-telemetry.c
+  d5c0376a16c7c709 5-6,8,20-22,327-328,333,335-337,340-341,350-351
+src/web-events.c
+  d5c0376a16c7c709 19,56
+tests/unit/test-syscall-nr.c
+  d5c0376a16c7c709 2
+tests/unit/test-path.c
+  d5c0376a16c7c709 3
+src/seccomp-supervisor.c
+  d5c0376a16c7c709 91-96,99,134-136,271-273,275,343,429,459
+  04a4706e72af7fdc 26-28,30
+src/lkl-wrap.c
+  04a4706e72af7fdc 6
+src/mount.c
+  d5c0376a16c7c709 14-15,93
+src/web.h
+  e13803fdcab3cc1d 114-141
+src/procmem.c
+  d5c0376a16c7c709 16,87
+include/kbox/elf.h
+  d5c0376a16c7c709 10
+tests/unit/test-identity.c
+  d5c0376a16c7c709 4
+src/web-server.c
+  d5c0376a16c7c709 31,38,91-93,190-191,238,274-275,292,370,383-384,392-393,396-397,706-711,815,923-928
+  04a4706e72af7fdc 35-37,816
+src/probe.c
+  d5c0376a16c7c709 25-27,35,55,111,123,173,217,224
+Makefile
+  04a4706e72af7fdc 12,229-239
+tests/unit/test-runner.c
+  d5c0376a16c7c709 102
+src/syscall-nr.c
+  d5c0376a16c7c709 6,528
+  e13803fdcab3cc1d 594-595
+src/image.c
+  d5c0376a16c7c709 18,58-62,130,145-149,261,296
+src/lkl-wrap.h
+  d5c0376a16c7c709 282-285,287,291-292,296-322
+tests/unit/test-elf.c
+  d5c0376a16c7c709 3
+scripts/pre-commit.hook
+  d5c0376a16c7c709 136
+src/path.c
+  04a4706e72af7fdc 17
+  d5c0376a16c7c709 16,164,170,300,303,308,363-366,375
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.15",
+  "base_commit_sha": "8f888eb7c6c1bc343644ab548b66293da9facda8",
+  "prompts": {
+    "04a4706e72af7fdc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d0c10-8784-7101-8d0b-fd63b909fc4e",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 33,
+      "total_deletions": 145,
+      "accepted_lines": 24,
+      "overriden_lines": 0
+    },
+    "4b46ea18c128ef93": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d0c9b-10cf-7bf2-99b9-e4e56d469085",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 258,
+      "total_deletions": 467,
+      "accepted_lines": 239,
+      "overriden_lines": 0
+    },
+    "d5c0376a16c7c709": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "823c0c60-ed31-4873-bf39-3cbc5b41fac1",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 784,
+      "total_deletions": 1085,
+      "accepted_lines": 525,
+      "overriden_lines": 20
+    },
+    "e13803fdcab3cc1d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d0cb2-7f16-7cf0-8896-f3cd8e2b2ceb",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 32,
+      "total_deletions": 202,
+      "accepted_lines": 32,
+      "overriden_lines": 0
+    }
+  }
+}
