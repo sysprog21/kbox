@@ -1,0 +1,29 @@
+tests/stress/long-running.c
+  e5ec36aec177e745 86,116
+tests/unit/test-fd-table.c
+  e5ec36aec177e745 184,206
+tests/guest/path-escape-test.c
+  e5ec36aec177e745 46,60-61
+Makefile
+  e5ec36aec177e745 112,220-242
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.15",
+  "base_commit_sha": "afcc693fd6fe0957e0ba2dee8dfc07b1623eb342",
+  "prompts": {
+    "e5ec36aec177e745": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "010c9a9e-8596-4dc0-80b0-f83a8d35d472",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 162,
+      "total_deletions": 12,
+      "accepted_lines": 160,
+      "overriden_lines": 0
+    }
+  }
+}
