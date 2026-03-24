@@ -16,8 +16,8 @@ struct kbox_sysnrs; /* forward declaration */
 
 #define KBOX_FD_BASE 32768
 #define KBOX_FD_TABLE_MAX 4096
-/* redirect slots for FDs 0..1023 (dup2 targets) */
-#define KBOX_LOW_FD_MAX 1024
+/* redirect slots for FDs 0..32767 (dup2 targets) */
+#define KBOX_LOW_FD_MAX 32768
 #define KBOX_FD_TABLE_CAPACITY (KBOX_FD_TABLE_MAX + KBOX_LOW_FD_MAX)
 
 struct kbox_fd_entry {

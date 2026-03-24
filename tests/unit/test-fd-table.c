@@ -94,9 +94,8 @@ static void test_fd_table_out_of_range(void)
 {
     struct kbox_fd_table t;
     kbox_fd_table_init(&t);
-    /* Gap between low_fds and high range */
-    ASSERT_EQ(kbox_fd_table_get_lkl(&t, KBOX_LOW_FD_MAX), -1);
-    ASSERT_EQ(kbox_fd_table_get_lkl(&t, KBOX_FD_BASE - 1), -1);
+    /* Under range */
+    ASSERT_EQ(kbox_fd_table_get_lkl(&t, -1), -1);
     /* Above range */
     ASSERT_EQ(kbox_fd_table_get_lkl(&t, KBOX_FD_BASE + KBOX_FD_TABLE_MAX), -1);
 }
@@ -116,15 +115,23 @@ static void test_fd_table_insert_at_low_range(void)
     ASSERT_EQ(rc, 0);
     ASSERT_EQ(kbox_fd_table_get_lkl(&t, 100), 55);
 
-    /* Boundary: FD 1023 (last valid low slot) */
-    rc = kbox_fd_table_insert_at(&t, KBOX_LOW_FD_MAX - 1, 77, 1);
+    /* Mid-range: FD 1023 */
+    rc = kbox_fd_table_insert_at(&t, 1023, 77, 1);
     ASSERT_EQ(rc, 0);
-    ASSERT_EQ(kbox_fd_table_get_lkl(&t, KBOX_LOW_FD_MAX - 1), 77);
-    ASSERT_TRUE(kbox_fd_table_mirror_tty(&t, KBOX_LOW_FD_MAX - 1));
+    ASSERT_EQ(kbox_fd_table_get_lkl(&t, 1023), 77);
+    ASSERT_TRUE(kbox_fd_table_mirror_tty(&t, 1023));
 
-    /* Gap: FD 1024 should fail */
-    rc = kbox_fd_table_insert_at(&t, KBOX_LOW_FD_MAX, 66, 0);
-    ASSERT_EQ(rc, -1);
+    /* Mid-range: FD 10000 */
+    rc = kbox_fd_table_insert_at(&t, 10000, 33, 1);
+    ASSERT_EQ(rc, 0);
+    ASSERT_EQ(kbox_fd_table_get_lkl(&t, 10000), 33);
+    ASSERT_TRUE(kbox_fd_table_mirror_tty(&t, 10000));
+
+    /* Boundary: FD 32767 (the last low-range slot) */
+    rc = kbox_fd_table_insert_at(&t, KBOX_LOW_FD_MAX - 1, 66, 0);
+    ASSERT_EQ(rc, 0);
+    ASSERT_EQ(kbox_fd_table_get_lkl(&t, KBOX_LOW_FD_MAX - 1), 66);
+    ASSERT_TRUE(!kbox_fd_table_mirror_tty(&t, KBOX_LOW_FD_MAX - 1));
 
     /* Low-range remove */
     long old = kbox_fd_table_remove(&t, 100);
