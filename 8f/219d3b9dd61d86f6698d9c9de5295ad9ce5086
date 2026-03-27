@@ -1,0 +1,35 @@
+web/js/scene.js
+  96eae433200101e4 201,207,383
+web/js/house.js
+  96eae433200101e4 129,244,248,460,467,624,630,658,663
+web/js/bubble.js
+  96eae433200101e4 101,105-108
+web/js/intent.js
+  96eae433200101e4 282-284,286
+web/js/strings.json
+  96eae433200101e4 25
+web/js/education.js
+  96eae433200101e4 203
+web/js/penguin.js
+  96eae433200101e4 106-107,116-117,141,144
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.20",
+  "base_commit_sha": "8f219d3b9dd61d86f6698d9c9de5295ad9ce5086",
+  "prompts": {
+    "96eae433200101e4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "50bcf1cc-9428-44de-98e9-76c736255164",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 63,
+      "total_deletions": 317,
+      "accepted_lines": 62,
+      "overriden_lines": 0
+    }
+  }
+}
