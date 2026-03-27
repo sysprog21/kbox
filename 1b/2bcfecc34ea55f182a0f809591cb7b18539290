@@ -1,0 +1,69 @@
+web/js/main.js
+  96eae433200101e4 8-9
+web/js/polling.js
+  96eae433200101e4 12,15-16,37-39,56-59,63-64,84,93-96,98-113
+web/art/CREDITS.md
+  96eae433200101e4 1-17,20-26
+web/style.css
+  96eae433200101e4 82-227,229,235
+web/js/education.js
+  96eae433200101e4 1-266
+web/js/bubble.js
+  96eae433200101e4 1-138
+web/js/strings.json
+  96eae433200101e4 1-87
+web/js/intent.js
+  96eae433200101e4 1-169,191-195,197-200,202-208,213-215,217,220-225,227,238,245,247-248,254-255,258-261,264-265,282-283,285-286,289,291-297
+web/js/telemetry.js
+  96eae433200101e4 1-217
+web/js/scene.js
+  96eae433200101e4 1-468
+scripts/gen-penguin-sprites.py
+  96eae433200101e4 1-270
+src/web-server.c
+  96eae433200101e4 317-320
+web/index.html
+  96eae433200101e4 45-65,102-107,119,128-134
+scripts/gen-web-assets.sh
+  96eae433200101e4 22
+web/js/controls.js
+  96eae433200101e4 6-34,41,52-54,61-64,83-94,97,101,107-108,120
+web/js/house.js
+  b20287150d33963b 29,441-445,454,456,501,516,546,552,581,593,620,625
+  96eae433200101e4 1-28,30-440,446-453,455,457-500,502-515,517-545,547-551,553-580,582-592,594-619,621-624,626-665
+web/js/penguin.js
+  96eae433200101e4 1-306
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.20",
+  "base_commit_sha": "1b2bcfecc34ea55f182a0f809591cb7b18539290",
+  "prompts": {
+    "96eae433200101e4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "50bcf1cc-9428-44de-98e9-76c736255164",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 4793,
+      "total_deletions": 1539,
+      "accepted_lines": 3241,
+      "overriden_lines": 35
+    },
+    "b20287150d33963b": {
+      "agent_id": {
+        "tool": "gemini",
+        "id": "8133d015-4cd2-4100-91e5-efb06c3aa521",
+        "model": "gemini-3-flash-preview"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 17,
+      "total_deletions": 1,
+      "accepted_lines": 16,
+      "overriden_lines": 0
+    }
+  }
+}
