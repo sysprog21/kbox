@@ -1,0 +1,67 @@
+web/js/polling.js
+  96eae433200101e4 12,15-16,37-39,56-59,63-64,84,93-96,98-113
+web/js/intent.js
+  96eae433200101e4 1-169,191-195,197-200,202-208,213-215,217,220-225,227,238,245,247-248,254-255,258-261,264-265,282-284,286-287,290,292-298
+web/js/house.js
+  96eae433200101e4 1-28,30-442,448-455,457,459-503,505-518,520-548,550-554,556-583,585-595,597-622,624-628,630-671
+  b20287150d33963b 29,443-447,456,458,504,519,549,555,584,596,623,629
+web/js/main.js
+  96eae433200101e4 8-9
+web/js/strings.json
+  96eae433200101e4 1-87
+scripts/gen-penguin-sprites.py
+  96eae433200101e4 1-270
+web/js/telemetry.js
+  96eae433200101e4 1-217
+src/web-server.c
+  96eae433200101e4 317-320
+web/js/controls.js
+  96eae433200101e4 6-34,41,52-54,61-64,83-94,97,101,107-108,120
+web/style.css
+  96eae433200101e4 82-227,229,235
+web/index.html
+  96eae433200101e4 45-65,102-107,119,128-134
+scripts/gen-web-assets.sh
+  96eae433200101e4 22
+web/js/penguin.js
+  96eae433200101e4 1-311
+web/js/education.js
+  96eae433200101e4 1-265
+web/js/scene.js
+  96eae433200101e4 1-468
+web/js/bubble.js
+  96eae433200101e4 1-139
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.20",
+  "base_commit_sha": "c673958babcb5c7392c814eaf9c7f5ee67cd41a1",
+  "prompts": {
+    "96eae433200101e4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "50bcf1cc-9428-44de-98e9-76c736255164",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 63,
+      "total_deletions": 317,
+      "accepted_lines": 2910,
+      "overriden_lines": 0
+    },
+    "b20287150d33963b": {
+      "agent_id": {
+        "tool": "gemini",
+        "id": "8133d015-4cd2-4100-91e5-efb06c3aa521",
+        "model": "gemini-3-flash-preview"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 17,
+      "total_deletions": 1,
+      "accepted_lines": 16,
+      "overriden_lines": 0
+    }
+  }
+}
