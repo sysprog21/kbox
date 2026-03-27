@@ -82,22 +82,24 @@ static const char *join_mount_opts(const struct kbox_image_args *a,
 
 extern char **environ;
 
-/* AUTO fast-path selection: on aarch64, the in-process trap/rewrite path
- * delivers 21x faster stat (LKL inode cache, no USER_NOTIF round-trip).
- * On x86_64, seccomp is faster across the board because the USER_NOTIF
- * overhead is lower (~10us vs ~20us on aarch64) and the SIGSYS service
- * thread round-trip makes open+close slower in trap mode.
+/* AUTO fast-path selection.
+ *
+ * The in-process trap/rewrite path delivers faster stat on aarch64 (LKL inode
+ * cache, no USER_NOTIF round-trip), but the rewrite runtime currently hangs for
+ * dynamically-linked binaries when the patched interpreter dispatches certain
+ * syscalls. Pin AUTO to seccomp on all architectures until the rewrite exit
+ * path is fixed.
+ *
+ * The rewrite fast path remains available via --syscall-mode=rewrite for
+ * benchmarking and development.
  */
-#if defined(__aarch64__)
-#define KBOX_AUTO_ENABLE_USERSPACE_FAST_PATH 1
-#else
 #define KBOX_AUTO_ENABLE_USERSPACE_FAST_PATH 0
-#endif
 
 static int is_shell_command(const char *command)
 {
-    static const char *const shells[] = {"sh",   "bash", "ash",  "zsh", "dash",
-                                         "fish", "csh",  "tcsh", "ksh", NULL};
+    static const char *const shells[] = {
+        "sh", "bash", "ash", "zsh", "dash", "fish", "csh", "tcsh", "ksh", NULL,
+    };
     const char *base = strrchr(command, '/');
 
     base = base ? base + 1 : command;

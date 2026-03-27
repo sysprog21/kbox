@@ -18,6 +18,7 @@
 #include <string.h>
 #include <sys/prctl.h>
 #include <sys/resource.h>
+#include <sys/signalfd.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -217,11 +218,15 @@ static int check_child(pid_t pid, int *exit_code)
 
 /* Supervisor loop. */
 
-/* Sit in a poll loop:
- *   1. Non-blocking waitpid to see if child exited.
- *   2. poll(listener_fd, POLLIN, 100ms).
- *   3. On POLLHUP/POLLERR, recheck child.
- *   4. Receive notification, dispatch, send response.
+/* Sit in a poll loop on two FDs:
+ *   - listener_fd: seccomp notifications from the child.
+ *   - sigchld_fd:  signalfd for SIGCHLD (instant child-exit wakeup).
+ *
+ * On SIGCHLD or POLLHUP, recheck child via non-blocking waitpid.
+ * On POLLIN for the listener, receive notification, dispatch, respond.
+ *
+ * SIGCHLD must already be blocked by the caller before fork() so the
+ * signal cannot be lost between fork and signalfd creation.
  *
  * Returns the child exit code, or -1 on fatal error.
  */
@@ -231,10 +236,26 @@ static int supervise_loop(struct kbox_supervisor_ctx *ctx)
     struct kbox_seccomp_notif_resp resp;
     struct kbox_syscall_request req;
     struct kbox_dispatch d;
-    struct pollfd pfd;
-    int exit_code;
+    struct pollfd pfds[2];
+    int exit_code = -1;
     int ret;
+    int sigchld_fd;
     int poll_timeout;
+
+    /* Create a signalfd for SIGCHLD so poll() wakes immediately when the child
+     * exits. SIGCHLD must already be blocked by the caller (before fork) to
+     * avoid losing the signal in the race between fork and this point.
+     */
+    {
+        sigset_t mask;
+        sigemptyset(&mask);
+        sigaddset(&mask, SIGCHLD);
+        sigchld_fd = signalfd(-1, &mask, SFD_NONBLOCK | SFD_CLOEXEC);
+    }
+    if (sigchld_fd < 0) {
+        fprintf(stderr, "signalfd: %s\n", strerror(errno));
+        return -1;
+    }
 
     poll_timeout = -1;
 #ifdef KBOX_HAS_WEB
@@ -243,21 +264,25 @@ static int supervise_loop(struct kbox_supervisor_ctx *ctx)
 #endif
 
     for (;;) {
-        /* Poll for the next seccomp notification. In the normal non-web
-         * steady state we block here instead of doing a non-blocking
-         * waitpid() on every iteration; that extra wait syscall shows up
-         * directly in the seccomp fast path on syscall-heavy workloads.
+        /* Poll for seccomp notifications and SIGCHLD simultaneously.
+         * In the normal non-web steady state we block here instead of
+         * doing a non-blocking waitpid() on every iteration; that extra
+         * wait syscall shows up directly in the seccomp fast path on
+         * syscall-heavy workloads.
          */
-        pfd.fd = ctx->listener_fd;
-        pfd.events = POLLIN;
-        pfd.revents = 0;
+        pfds[0].fd = ctx->listener_fd;
+        pfds[0].events = POLLIN;
+        pfds[0].revents = 0;
+        pfds[1].fd = sigchld_fd;
+        pfds[1].events = POLLIN;
+        pfds[1].revents = 0;
 
-        ret = poll(&pfd, 1, poll_timeout);
+        ret = poll(pfds, 2, poll_timeout);
         if (ret < 0) {
             if (errno == EINTR)
                 continue;
             fprintf(stderr, "poll(listener): %s\n", strerror(errno));
-            return -1;
+            goto out;
         }
         if (ret == 0) {
 #ifdef KBOX_HAS_WEB
@@ -271,17 +296,35 @@ static int supervise_loop(struct kbox_supervisor_ctx *ctx)
             continue;
         }
 
-        /* POLLHUP / POLLERR => recheck child. */
-        if (pfd.revents & (POLLHUP | POLLERR | POLLNVAL)) {
+        /* SIGCHLD received: drain the signalfd and check child. */
+        if (pfds[1].revents & POLLIN) {
+            struct signalfd_siginfo si;
+            while (read(sigchld_fd, &si, sizeof(si)) > 0)
+                ;
             ret = check_child(ctx->child_pid, &exit_code);
             if (ret < 0) {
                 fprintf(stderr, "waitpid: %s\n", strerror(errno));
-                return -1;
+                goto out;
             }
             if (ret == 1)
-                return exit_code;
+                goto out;
+        }
+
+        /* POLLHUP / POLLERR on listener => recheck child. */
+        if (pfds[0].revents & (POLLHUP | POLLERR | POLLNVAL)) {
+            ret = check_child(ctx->child_pid, &exit_code);
+            if (ret < 0) {
+                fprintf(stderr, "waitpid: %s\n", strerror(errno));
+                goto out;
+            }
+            if (ret == 1)
+                goto out;
             continue;
         }
+
+        /* No data on listener FD. */
+        if (!(pfds[0].revents & POLLIN))
+            continue;
 
         /* Receive notification. */
         ret = kbox_notify_recv(ctx->listener_fd, &notif);
@@ -296,18 +339,18 @@ static int supervise_loop(struct kbox_supervisor_ctx *ctx)
                     ret = check_child(ctx->child_pid, &exit_code);
                     if (ret < 0) {
                         fprintf(stderr, "waitpid: %s\n", strerror(errno));
-                        return -1;
+                        goto out;
                     }
                     if (ret == 1)
-                        return exit_code;
+                        goto out;
                 }
                 continue;
             }
             fprintf(stderr, "kbox_notify_recv: %s\n", strerror(e));
-            return -1;
+            goto out;
         }
 
-        /* 5. Dispatch to LKL (with optional latency measurement). */
+        /* Dispatch to LKL (with optional latency measurement). */
 #ifdef KBOX_HAS_WEB
         uint64_t t_dispatch_start = 0;
         if (ctx->web)
@@ -315,11 +358,11 @@ static int supervise_loop(struct kbox_supervisor_ctx *ctx)
 #endif
         if (kbox_syscall_request_from_notif(&notif, &req) < 0) {
             fprintf(stderr, "kbox: failed to decode seccomp notification\n");
-            return -1;
+            goto out;
         }
         d = kbox_dispatch_request(ctx, &req);
 
-        /* 6. Build and send response. */
+        /* Build and send response. */
         build_response(&resp, notif.id, &d);
         ret = kbox_notify_send(ctx->listener_fd, &resp);
 
@@ -359,16 +402,20 @@ static int supervise_loop(struct kbox_supervisor_ctx *ctx)
                 ret = check_child(ctx->child_pid, &exit_code);
                 if (ret < 0) {
                     fprintf(stderr, "waitpid: %s\n", strerror(errno));
-                    return -1;
+                    goto out;
                 }
                 if (ret == 1)
-                    return exit_code;
+                    goto out;
                 continue;
             }
             fprintf(stderr, "kbox_notify_send: %s\n", strerror(e));
-            return -1;
+            goto out;
         }
     }
+
+out:
+    close(sigchld_fd);
+    return exit_code;
 }
 
 /* Public entry point. */
@@ -388,8 +435,10 @@ int kbox_run_supervisor(const struct kbox_sysnrs *sysnrs,
     pid_t pid;
     int listener_fd;
     int exit_code;
+    int status;
     struct kbox_fd_table fd_table;
     struct kbox_supervisor_ctx ctx;
+    sigset_t old_mask;
 
     /* Architecture-specific host syscall numbers for the BPF filter. */
 #if defined(__x86_64__)
@@ -404,12 +453,30 @@ int kbox_run_supervisor(const struct kbox_sysnrs *sysnrs,
     if (socketpair_create(sp) < 0)
         return -1;
 
+    /* Block SIGCHLD before fork so the parent cannot lose the signal
+     * in the window between fork and signalfd creation.  Save the
+     * caller's mask so both parent and child can restore it later.
+     */
+    {
+        sigset_t chld_mask;
+        sigemptyset(&chld_mask);
+        sigaddset(&chld_mask, SIGCHLD);
+        if (sigprocmask(SIG_BLOCK, &chld_mask, &old_mask) < 0) {
+            fprintf(stderr, "sigprocmask(SIG_BLOCK): %s\n", strerror(errno));
+            close(sp[0]);
+            close(sp[1]);
+            return -1;
+        }
+    }
+
     /* 2. Fork. */
     pid = fork();
     if (pid < 0) {
         fprintf(stderr, "fork: %s\n", strerror(errno));
         close(sp[0]);
         close(sp[1]);
+        if (sigprocmask(SIG_SETMASK, &old_mask, NULL) < 0)
+            fprintf(stderr, "sigprocmask(SIG_SETMASK): %s\n", strerror(errno));
         return -1;
     }
 
@@ -472,7 +539,13 @@ int kbox_run_supervisor(const struct kbox_sysnrs *sysnrs,
         close(sp[1]);
         close(listener_fd);
 
-        /* 3e. Build argv and exec.
+        /* 3e. Restore the inherited signal mask before exec. */
+        if (sigprocmask(SIG_SETMASK, &old_mask, NULL) < 0) {
+            fprintf(stderr, "sigprocmask(SIG_SETMASK): %s\n", strerror(errno));
+            _exit(127);
+        }
+
+        /* 3f. Build argv and exec.
          *
          * argv[0] = command, then args[0..nargs], then NULL.
          *
@@ -514,13 +587,16 @@ int kbox_run_supervisor(const struct kbox_sysnrs *sysnrs,
 
     if (listener_fd < 0) {
         /* Child probably died.  Reap and report. */
-        int status = 0;
-        pid_t w = waitpid(pid, &status, WNOHANG);
+        pid_t w;
+        status = 0;
+        w = waitpid(pid, &status, WNOHANG);
         if (w == 0) {
             kill(pid, SIGKILL);
             waitpid(pid, &status, 0);
         }
         fprintf(stderr, "failed to receive seccomp listener fd\n");
+        if (sigprocmask(SIG_SETMASK, &old_mask, NULL) < 0)
+            fprintf(stderr, "sigprocmask(SIG_SETMASK): %s\n", strerror(errno));
         return -1;
     }
 
@@ -548,14 +624,28 @@ int kbox_run_supervisor(const struct kbox_sysnrs *sysnrs,
     /* 4c. Enter supervisor loop. */
     exit_code = supervise_loop(&ctx);
 
+    /* Restore the caller's signal mask now that the signalfd is closed. */
+    if (sigprocmask(SIG_SETMASK, &old_mask, NULL) < 0)
+        fprintf(stderr, "sigprocmask(SIG_SETMASK): %s\n", strerror(errno));
+
     if (ctx.proc_mem_fd >= 0)
         close(ctx.proc_mem_fd);
     if (ctx.proc_self_fd_dirfd >= 0)
         close(ctx.proc_self_fd_dirfd);
     close(listener_fd);
 
-    if (exit_code < 0)
+    if (exit_code < 0) {
+        if (kill(pid, SIGKILL) < 0 && errno != ESRCH)
+            fprintf(stderr, "kill(%d): %s\n", (int) pid, strerror(errno));
+        while (waitpid(pid, &status, 0) < 0) {
+            if (errno == EINTR)
+                continue;
+            if (errno != ECHILD)
+                fprintf(stderr, "waitpid: %s\n", strerror(errno));
+            break;
+        }
         return -1;
+    }
     if (exit_code != 0) {
         fprintf(stderr, "child exited with status %d\n", exit_code);
         return -1;
