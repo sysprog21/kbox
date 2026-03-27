@@ -1,0 +1,23 @@
+scripts/pre-commit.hook
+  02560633fe02cd07 144,253,255,257-263
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.20",
+  "base_commit_sha": "8863cb68bcde37655757fbe8a7ce11c44ec26fb7",
+  "prompts": {
+    "02560633fe02cd07": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "30ebcea0-df39-4996-9d72-828ae18a5757",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 11,
+      "total_deletions": 11,
+      "accepted_lines": 10,
+      "overriden_lines": 0
+    }
+  }
+}
