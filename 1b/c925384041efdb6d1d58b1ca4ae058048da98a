@@ -1,0 +1,25 @@
+src/seccomp-dispatch.c
+  7486dfc506f01da5 1451-1454,2623-2624
+src/procmem.c
+  7486dfc506f01da5 150,228
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.22",
+  "base_commit_sha": "1bc925384041efdb6d1d58b1ca4ae058048da98a",
+  "prompts": {
+    "7486dfc506f01da5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d6056029-f38b-4c3e-8336-4c34ddc0e40d",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 8,
+      "total_deletions": 106,
+      "accepted_lines": 8,
+      "overriden_lines": 0
+    }
+  }
+}
