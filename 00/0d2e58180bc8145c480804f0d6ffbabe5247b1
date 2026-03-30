@@ -1,0 +1,50 @@
+scripts/check-commitlog.sh
+  c25b0d77c477c8af 1-10,12-23,25-27,35,37-53,65-69,71-72,74-101,103-209,211-220
+  b065de68bc485855 11,24,28-34,36,54-64,70,73,102,210
+Makefile
+  c25b0d77c477c8af 18-19
+mk/tests.mk
+  c25b0d77c477c8af 157-162
+.github/workflows/build-kbox.yml
+  b065de68bc485855 32-50
+  c25b0d77c477c8af 22-31,51
+scripts/pre-push.hook
+  c25b0d77c477c8af 1-47
+scripts/post-commit.hook
+  c25b0d77c477c8af 1-44
+scripts/vanity-hash.py
+  c25b0d77c477c8af 1-158
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.22",
+  "base_commit_sha": "000d2e58180bc8145c480804f0d6ffbabe5247b1",
+  "prompts": {
+    "b065de68bc485855": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d3e42-28cb-7281-a8de-b1a91644d5cf",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 44,
+      "total_deletions": 7,
+      "accepted_lines": 44,
+      "overriden_lines": 0
+    },
+    "c25b0d77c477c8af": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "947eb9f2-737e-4dc3-b9c1-209c922cd583",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang <jserv@ccns.ncku.edu.tw>",
+      "messages": [],
+      "total_additions": 553,
+      "total_deletions": 86,
+      "accepted_lines": 463,
+      "overriden_lines": 0
+    }
+  }
+}
