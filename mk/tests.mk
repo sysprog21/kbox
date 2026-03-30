@@ -154,4 +154,9 @@ else
 endif
 endif
 
-.PHONY: check check-unit check-integration check-stress guest-bins stress-bins rootfs check-syntax
+# ---- Commit-log validation (Change-Id, subject format) ----
+check-commitlog:
+	@echo "  RUN     check-commitlog"
+	$(Q)scripts/check-commitlog.sh
+
+.PHONY: check check-unit check-integration check-stress check-commitlog guest-bins stress-bins rootfs check-syntax

@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+
+# pre-push hook for kbox: validate commit hygiene before pushing.
+#
+# Runs check-commitlog.sh to ensure every non-merge commit after the
+# hook introduction point carries a valid Change-Id and meets subject
+# line formatting requirements.
+#
+# Skipped in CI environments (GitHub Actions).
+
+resolve_script_dir() {
+    local source="${BASH_SOURCE[0]}"
+    while [ -L "$source" ]; do
+        local dir
+        dir=$(cd -P "$(dirname "$source")" && pwd) || return 1
+        source=$(readlink "$source") || return 1
+        [[ $source != /* ]] && source="$dir/$source"
+    done
+    cd -P "$(dirname "$source")" && pwd
+}
+
+script_dir=$(resolve_script_dir) || exit 0
+[ -n "$script_dir" ] || exit 0
+
+# Source common helpers.
+common_script="$script_dir/common.sh"
+if [ -r "$common_script" ]; then
+    source "$common_script"
+    check_ci
+    set_colors 2>/dev/null
+fi
+RED="${RED:-}" GREEN="${GREEN:-}" YELLOW="${YELLOW:-}" NC="${NC:-}"
+
+# --- Commit-log validation ---
+check_script="$script_dir/check-commitlog.sh"
+if [ ! -x "$check_script" ]; then
+    echo -e "${YELLOW}Warning: $check_script not found or not executable.${NC}" >&2
+    echo -e "${YELLOW}Skipping commit-log validation.${NC}" >&2
+    exit 0
+fi
+
+# Validate only the refs being pushed, not unrelated local history.
+zero_oid="0000000000000000000000000000000000000000"
+had_refs=0
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+    [ -z "${local_ref:-}" ] && continue
+    had_refs=1
+
+    # Ref deletion: nothing new is being pushed.
+    if [ "$local_sha" = "$zero_oid" ]; then
+        continue
+    fi
+
+    if [ "$remote_sha" = "$zero_oid" ]; then
+        # New branch: find the oldest commit that is not already
+        # reachable from any remote ref.  This avoids a full-history
+        # walk and the multi-line merge-base problem.
+        oldest=$(git rev-list "$local_sha" --not --remotes --reverse 2>/dev/null | head -1)
+        if [ -n "$oldest" ]; then
+            # Range from the parent of the oldest new commit.
+            parent=$(git rev-parse "${oldest}^" 2>/dev/null || true)
+            if [ -n "$parent" ]; then
+                range="$parent..$local_sha"
+            else
+                # Root commit: validate everything up to local_sha.
+                range="$local_sha"
+            fi
+        else
+            # All commits already on a remote: nothing new to check.
+            continue
+        fi
+    else
+        range="$remote_sha..$local_sha"
+    fi
+
+    echo -e "${GREEN}Running commit-log validation for ${local_ref} -> ${remote_ref}...${NC}"
+    if ! "$check_script" --range "$range"; then
+        echo -e "\n${RED}Push blocked: commit-log validation failed.${NC}" >&2
+        echo -e "Fix the issues above, then retry the push." >&2
+        exit 1
+    fi
+done
+
+if [ "$had_refs" -eq 0 ]; then
+    echo -e "${GREEN}Running commit-log validation...${NC}"
+    if ! "$check_script"; then
+        echo -e "\n${RED}Push blocked: commit-log validation failed.${NC}" >&2
+        echo -e "Fix the issues above, then retry the push." >&2
+        exit 1
+    fi
+fi
+
+exit 0

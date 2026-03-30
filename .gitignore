@@ -1,6 +1,7 @@
 *.o
 *.d
 *.dSYM/
+__pycache__
 *.ext4
 /kbox
 tests/unit/test-runner

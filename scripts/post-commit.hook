@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+
+# post-commit hook for kbox: rewrite HEAD to have a vanity hash prefix.
+#
+# Calls vanity-hash.py to insert minimal invisible whitespace padding
+# into the commit message so that the SHA-1 starts with "0000".
+#
+# Skipped in CI environments.
+
+resolve_script_dir() {
+    local source="${BASH_SOURCE[0]}"
+    while [ -L "$source" ]; do
+        local dir
+        dir=$(cd -P "$(dirname "$source")" && pwd) || return 1
+        source=$(readlink "$source") || return 1
+        [[ $source != /* ]] && source="$dir/$source"
+    done
+    cd -P "$(dirname "$source")" && pwd
+}
+
+script_dir=$(resolve_script_dir) || exit 0
+[ -n "$script_dir" ] || exit 0
+
+# Source common helpers.
+common_script="$script_dir/common.sh"
+if [ -r "$common_script" ]; then
+    source "$common_script"
+    check_ci
+fi
+
+# Run the vanity hash rewriter.
+vanity_script="$script_dir/vanity-hash.py"
+if [ -x "$vanity_script" ] && command -v python3 >/dev/null 2>&1; then
+    python3 "$vanity_script"
+fi
