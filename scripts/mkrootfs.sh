@@ -111,6 +111,14 @@ if [ -d "$STRESS_DIR" ]; then
     done
 fi
 
+# Inject external network testing binaries.
+if [ -x "deps/iperf3" ]; then
+    cp deps/iperf3 "${STAGING}/usr/bin/"
+fi
+if [ -x "deps/netperf" ]; then
+    cp deps/netperf "${STAGING}/usr/bin/"
+fi
+
 echo "Creating ${SIZE_MB}MB ext4 image at ${OUTFILE}..."
 
 # Create the ext4 image from the staging directory.

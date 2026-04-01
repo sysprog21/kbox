@@ -50,6 +50,17 @@ fetch-minislirp:
 	$(Q)scripts/fetch-minislirp.sh
 endif
 
+.PHONY: fetch-iperf3
+fetch-iperf3:
+	@echo "  FETCH   iperf3"
+	$(Q)sh scripts/fetch-iperf3.sh $(ARCH)
+
+.PHONY: fetch-netperf
+fetch-netperf:
+	@echo "  FETCH   netperf"
+	$(Q)sh scripts/fetch-netperf.sh
+
+
 # Generate compiled-in web assets from web/ directory.
 # Re-run when any web/ file changes.
 ifeq ($(CONFIG_HAS_WEB),y)

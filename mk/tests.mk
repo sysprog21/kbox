@@ -111,7 +111,7 @@ $(STRESS_DIR)/%: $(STRESS_DIR)/%.c
 
 rootfs: $(ROOTFS)
 
-$(ROOTFS): scripts/mkrootfs.sh scripts/alpine-sha256.txt $(GUEST_BINS) $(STRESS_BINS)
+$(ROOTFS): scripts/mkrootfs.sh scripts/alpine-sha256.txt $(GUEST_BINS) $(STRESS_BINS) fetch-iperf3 fetch-netperf
 	@echo "  GEN     $@"
 	$(Q)ALPINE_ARCH=$(ARCH) ./scripts/mkrootfs.sh
 
