@@ -37,6 +37,17 @@ bool kbox_is_tty_like_path(const char *path);
 /* Check if path is a loader/runtime path (ld.so.cache, /lib, etc.). */
 bool kbox_is_loader_runtime_path(const char *path);
 
+/* Check whether a relative path contains ".." as a standalone component. */
+bool kbox_relative_path_has_dotdot(const char *path);
+
+/* Check if a relative lookup under a /proc-based host dirfd would resolve
+ * through a magic proc escape entry.
+ *
+ * This covers lookups rooted at /proc, /proc/self, /proc/thread-self, or
+ * /proc/<pid>, including task/<tid>/... relative paths under per-thread views.
+ */
+bool kbox_relative_proc_escape_path(const char *path);
+
 /* Normalize path relative to base, resolving . and .. lexically.
  * If @input is absolute, @base is ignored. Result is written to @out (must be
  * KBOX_MAX_PATH bytes).

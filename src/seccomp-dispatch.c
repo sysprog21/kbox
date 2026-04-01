@@ -452,6 +452,31 @@ struct kbox_dispatch kbox_dispatch_from_lkl(long ret)
 
 /* Path and FD helper functions. */
 
+/* Check if the original guest path at a given arg index starts with '/'.
+ * Used to gate virtual-path CONTINUE on originally-absolute paths: relative
+ * paths like "./proc" normalize to "/proc" but should go through LKL, while
+ * absolute "/proc/self/status" should CONTINUE to the host kernel.
+ */
+static bool guest_path_is_absolute(const struct kbox_supervisor_ctx *ctx,
+                                   const struct kbox_syscall_request *req,
+                                   size_t arg_idx)
+{
+    uint8_t first = 0;
+    if (guest_mem_read(ctx, kbox_syscall_request_pid(req),
+                       kbox_syscall_request_arg(req, arg_idx), &first, 1) == 0)
+        return first == '/';
+    return false;
+}
+
+static bool should_continue_virtual_path(const struct kbox_supervisor_ctx *ctx,
+                                         const struct kbox_syscall_request *req,
+                                         size_t path_idx,
+                                         const char *translated)
+{
+    return kbox_is_lkl_virtual_path(translated) &&
+           guest_path_is_absolute(ctx, req, path_idx);
+}
+
 /* Resolve dirfd for *at() syscalls.
  *
  * If the path is absolute, AT_FDCWD is fine regardless of dirfd. If dirfd is
@@ -666,6 +691,28 @@ int translate_request_path(const struct kbox_syscall_request *req,
                                 host_root, translated, size);
 }
 
+static bool host_dirfd_targets_proc(const struct kbox_supervisor_ctx *ctx,
+                                    long fd)
+{
+    char link_path[64];
+    char target[KBOX_MAX_PATH];
+    ssize_t n;
+
+    if (!ctx || ctx->child_pid <= 0 || fd < 0)
+        return false;
+
+    snprintf(link_path, sizeof(link_path), /* format-ok */
+             "/proc/%d/fd/%ld", (int) ctx->child_pid, fd);
+    n = readlink(link_path, target, sizeof(target) - 1);
+    if (n < 0)
+        return false;
+    target[n] = '\0';
+
+    if (strcmp(target, "/proc") == 0)
+        return true;
+    return strncmp(target, "/proc/", 6) == 0;
+}
+
 int translate_request_at_path(const struct kbox_syscall_request *req,
                               struct kbox_supervisor_ctx *ctx,
                               size_t dirfd_idx,
@@ -674,14 +721,48 @@ int translate_request_at_path(const struct kbox_syscall_request *req,
                               size_t size,
                               long *lkl_dirfd)
 {
+    long raw_dirfd = to_dirfd_arg(kbox_syscall_request_arg(req, dirfd_idx));
+
+    /* If dirfd is not AT_FDCWD and not tracked in our FD table, this is a
+     * host-kernel FD (e.g., from a CONTINUE'd openat on /proc or /sys).
+     * For relative or empty paths the host kernel must resolve them against
+     * that dirfd, so signal CONTINUE by setting *lkl_dirfd = -1.
+     *
+     * Reject unsafe relative lookups instead of translating them through LKL:
+     * translating "../../etc/passwd" against the guest cwd would silently
+     * change syscall semantics, and continuing it against the host dirfd could
+     * escape the virtual namespace.
+     *
+     * For absolute paths dirfd is irrelevant and normal translation proceeds.
+     */
+    if (raw_dirfd != AT_FDCWD_LINUX && raw_dirfd >= 0 &&
+        kbox_fd_table_get_lkl(ctx->fd_table, raw_dirfd) < 0) {
+        char pathbuf[KBOX_MAX_PATH];
+        bool proc_dirfd = host_dirfd_targets_proc(ctx, raw_dirfd);
+        int rc = read_guest_string(ctx, kbox_syscall_request_pid(req),
+                                   kbox_syscall_request_arg(req, path_idx),
+                                   pathbuf, sizeof(pathbuf));
+        if (rc < 0)
+            return rc;
+        if (pathbuf[0] != '/') {
+            if (kbox_relative_path_has_dotdot(pathbuf) ||
+                (proc_dirfd && kbox_relative_proc_escape_path(pathbuf))) {
+                return -EPERM;
+            }
+            *lkl_dirfd = -1;
+            if (size > 0)
+                translated[0] = '\0';
+            return 0;
+        }
+        /* Absolute path: dirfd is ignored, so normal translation is safe. */
+    }
+
     int rc = translate_request_path(req, ctx, path_idx, ctx->host_root,
                                     translated, size);
     if (rc < 0)
         return rc;
 
-    *lkl_dirfd = resolve_open_dirfd(
-        translated, to_dirfd_arg(kbox_syscall_request_arg(req, dirfd_idx)),
-        ctx->fd_table);
+    *lkl_dirfd = resolve_open_dirfd(translated, raw_dirfd, ctx->fd_table);
     return 0;
 }
 
@@ -1392,7 +1473,7 @@ static struct kbox_dispatch forward_openat(
         host_to_lkl_open_flags(to_c_long_arg(kbox_syscall_request_arg(req, 2)));
     long mode = to_c_long_arg(kbox_syscall_request_arg(req, 3));
 
-    if (kbox_is_lkl_virtual_path(translated))
+    if (should_continue_virtual_path(ctx, req, 1, translated))
         return kbox_dispatch_continue();
     if (kbox_is_tty_like_path(translated))
         return kbox_dispatch_continue();
@@ -1436,7 +1517,7 @@ static struct kbox_dispatch forward_openat2(
         return kbox_dispatch_errno(-rc);
     how.flags = (uint64_t) host_to_lkl_open_flags((long) how.flags);
 
-    if (kbox_is_lkl_virtual_path(translated))
+    if (should_continue_virtual_path(ctx, req, 1, translated))
         return kbox_dispatch_continue();
     if (kbox_is_tty_like_path(translated))
         return kbox_dispatch_continue();
@@ -1485,7 +1566,7 @@ static struct kbox_dispatch forward_open_legacy(
         host_to_lkl_open_flags(to_c_long_arg(kbox_syscall_request_arg(req, 1)));
     long mode = to_c_long_arg(kbox_syscall_request_arg(req, 2));
 
-    if (kbox_is_lkl_virtual_path(translated))
+    if (should_continue_virtual_path(ctx, req, 0, translated))
         return kbox_dispatch_continue();
     if (kbox_is_tty_like_path(translated))
         return kbox_dispatch_continue();
@@ -2496,6 +2577,8 @@ static struct kbox_dispatch forward_newfstatat(
         return kbox_dispatch_errno(-rc);
     if (should_continue_for_dirfd(lkl_dirfd))
         return kbox_dispatch_continue();
+    if (should_continue_virtual_path(ctx, req, 1, translated))
+        return kbox_dispatch_continue();
 
     uint64_t remote_stat = kbox_syscall_request_arg(req, 2);
     if (remote_stat == 0)
@@ -2610,6 +2693,8 @@ static struct kbox_dispatch forward_statx(
         return kbox_dispatch_errno(-rc);
     if (should_continue_for_dirfd(lkl_dirfd))
         return kbox_dispatch_continue();
+    if (should_continue_virtual_path(ctx, req, 1, translated))
+        return kbox_dispatch_continue();
 
     int flags = (int) to_c_long_arg(kbox_syscall_request_arg(req, 2));
     unsigned mask = (unsigned) to_c_long_arg(kbox_syscall_request_arg(req, 3));
@@ -2648,6 +2733,8 @@ static struct kbox_dispatch do_faccessat(const struct kbox_syscall_request *req,
     if (rc < 0)
         return kbox_dispatch_errno(-rc);
     if (should_continue_for_dirfd(lkl_dirfd))
+        return kbox_dispatch_continue();
+    if (should_continue_virtual_path(ctx, req, 1, translated))
         return kbox_dispatch_continue();
 
     long mode = to_c_long_arg(kbox_syscall_request_arg(req, 2));
@@ -2700,7 +2787,6 @@ static struct kbox_dispatch forward_chdir(
                                     sizeof(translated));
     if (rc < 0)
         return kbox_dispatch_errno(-rc);
-
     long ret = kbox_lkl_chdir(ctx->sysnrs, translated);
     if (ret < 0)
         return kbox_dispatch_errno((int) (-ret));
@@ -2845,7 +2931,6 @@ static struct kbox_dispatch do_renameat(const struct kbox_syscall_request *req,
         return kbox_dispatch_continue();
     if (should_continue_for_dirfd(newdirfd))
         return kbox_dispatch_continue();
-
     long ret = kbox_lkl_renameat2(ctx->sysnrs, olddirfd, oldtrans, newdirfd,
                                   newtrans, flags);
     if (ret >= 0)
@@ -3016,6 +3101,8 @@ static struct kbox_dispatch forward_stat_legacy(
                                     sizeof(translated));
     if (rc < 0)
         return kbox_dispatch_errno(-rc);
+    if (should_continue_virtual_path(ctx, req, 0, translated))
+        return kbox_dispatch_continue();
 
     uint64_t remote_stat = kbox_syscall_request_arg(req, 1);
     if (remote_stat == 0)
@@ -3067,6 +3154,8 @@ static struct kbox_dispatch forward_legacy_path_call(
                                     sizeof(translated));
     if (rc < 0)
         return kbox_dispatch_errno(-rc);
+    if (should_continue_virtual_path(ctx, req, 0, translated))
+        return kbox_dispatch_continue();
     return kbox_dispatch_from_lkl(invoke(req, ctx, translated));
 }
 

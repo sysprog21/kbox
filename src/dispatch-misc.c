@@ -108,10 +108,10 @@ struct kbox_dispatch forward_readlinkat(const struct kbox_syscall_request *req,
                                         struct kbox_supervisor_ctx *ctx)
 {
     pid_t pid = kbox_syscall_request_pid(req);
-    long dirfd_raw = to_dirfd_arg(kbox_syscall_request_arg(req, 0));
-    char pathbuf[KBOX_MAX_PATH];
-    int rc = guest_mem_read_string(ctx, pid, kbox_syscall_request_arg(req, 1),
-                                   pathbuf, sizeof(pathbuf));
+    char translated[KBOX_MAX_PATH];
+    long lkl_dirfd;
+    int rc = translate_request_at_path(req, ctx, 0, 1, translated,
+                                       sizeof(translated), &lkl_dirfd);
     if (rc < 0)
         return kbox_dispatch_errno(-rc);
 
@@ -123,15 +123,7 @@ struct kbox_dispatch forward_readlinkat(const struct kbox_syscall_request *req,
 
     if (remote_buf == 0)
         return kbox_dispatch_errno(EFAULT);
-
-    char translated[KBOX_MAX_PATH];
-    rc = kbox_translate_path_for_lkl(pid, pathbuf, ctx->host_root, translated,
-                                     sizeof(translated));
-    if (rc < 0)
-        return kbox_dispatch_errno(-rc);
-
-    long lkl_dirfd = resolve_open_dirfd(translated, dirfd_raw, ctx->fd_table);
-    if (lkl_dirfd < 0 && lkl_dirfd != AT_FDCWD_LINUX)
+    if (should_continue_for_dirfd(lkl_dirfd))
         return kbox_dispatch_continue();
 
     if (bufsiz > KBOX_MAX_PATH)
@@ -724,7 +716,6 @@ struct kbox_dispatch forward_symlinkat(const struct kbox_syscall_request *req,
 {
     pid_t pid = kbox_syscall_request_pid(req);
     char targetbuf[KBOX_MAX_PATH];
-    char linkpathbuf[KBOX_MAX_PATH];
     int rc;
 
     rc = guest_mem_read_string(ctx, pid, kbox_syscall_request_arg(req, 0),
@@ -732,21 +723,13 @@ struct kbox_dispatch forward_symlinkat(const struct kbox_syscall_request *req,
     if (rc < 0)
         return kbox_dispatch_errno(-rc);
 
-    long newdirfd_raw = to_dirfd_arg(kbox_syscall_request_arg(req, 1));
-
-    rc = guest_mem_read_string(ctx, pid, kbox_syscall_request_arg(req, 2),
-                               linkpathbuf, sizeof(linkpathbuf));
-    if (rc < 0)
-        return kbox_dispatch_errno(-rc);
-
     char linktrans[KBOX_MAX_PATH];
-    rc = kbox_translate_path_for_lkl(pid, linkpathbuf, ctx->host_root,
-                                     linktrans, sizeof(linktrans));
+    long newdirfd;
+    rc = translate_request_at_path(req, ctx, 1, 2, linktrans, sizeof(linktrans),
+                                   &newdirfd);
     if (rc < 0)
         return kbox_dispatch_errno(-rc);
-
-    long newdirfd = resolve_open_dirfd(linktrans, newdirfd_raw, ctx->fd_table);
-    if (newdirfd < 0 && newdirfd != AT_FDCWD_LINUX)
+    if (should_continue_for_dirfd(newdirfd))
         return kbox_dispatch_continue();
 
     /* Target is stored as-is (not translated). */
@@ -759,44 +742,25 @@ struct kbox_dispatch forward_symlinkat(const struct kbox_syscall_request *req,
 struct kbox_dispatch forward_linkat(const struct kbox_syscall_request *req,
                                     struct kbox_supervisor_ctx *ctx)
 {
-    pid_t pid = kbox_syscall_request_pid(req);
-    long olddirfd_raw = to_dirfd_arg(kbox_syscall_request_arg(req, 0));
-    char oldpathbuf[KBOX_MAX_PATH];
     int rc;
-
-    rc = guest_mem_read_string(ctx, pid, kbox_syscall_request_arg(req, 1),
-                               oldpathbuf, sizeof(oldpathbuf));
-    if (rc < 0)
-        return kbox_dispatch_errno(-rc);
-
-    long newdirfd_raw = to_dirfd_arg(kbox_syscall_request_arg(req, 2));
-    char newpathbuf[KBOX_MAX_PATH];
-
-    rc = guest_mem_read_string(ctx, pid, kbox_syscall_request_arg(req, 3),
-                               newpathbuf, sizeof(newpathbuf));
-    if (rc < 0)
-        return kbox_dispatch_errno(-rc);
-
     long flags = to_c_long_arg(kbox_syscall_request_arg(req, 4));
 
     char oldtrans[KBOX_MAX_PATH];
-    rc = kbox_translate_path_for_lkl(pid, oldpathbuf, ctx->host_root, oldtrans,
-                                     sizeof(oldtrans));
+    long olddirfd;
+    rc = translate_request_at_path(req, ctx, 0, 1, oldtrans, sizeof(oldtrans),
+                                   &olddirfd);
     if (rc < 0)
         return kbox_dispatch_errno(-rc);
-
-    char newtrans[KBOX_MAX_PATH];
-    rc = kbox_translate_path_for_lkl(pid, newpathbuf, ctx->host_root, newtrans,
-                                     sizeof(newtrans));
-    if (rc < 0)
-        return kbox_dispatch_errno(-rc);
-
-    long olddirfd = resolve_open_dirfd(oldtrans, olddirfd_raw, ctx->fd_table);
-    if (olddirfd < 0 && olddirfd != AT_FDCWD_LINUX)
+    if (should_continue_for_dirfd(olddirfd))
         return kbox_dispatch_continue();
 
-    long newdirfd = resolve_open_dirfd(newtrans, newdirfd_raw, ctx->fd_table);
-    if (newdirfd < 0 && newdirfd != AT_FDCWD_LINUX)
+    char newtrans[KBOX_MAX_PATH];
+    long newdirfd;
+    rc = translate_request_at_path(req, ctx, 2, 3, newtrans, sizeof(newtrans),
+                                   &newdirfd);
+    if (rc < 0)
+        return kbox_dispatch_errno(-rc);
+    if (should_continue_for_dirfd(newdirfd))
         return kbox_dispatch_continue();
 
     long ret = kbox_lkl_linkat(ctx->sysnrs, olddirfd, oldtrans, newdirfd,
@@ -824,20 +788,12 @@ struct kbox_dispatch forward_utimensat(const struct kbox_syscall_request *req,
     int rc;
 
     if (kbox_syscall_request_arg(req, 1) != 0) {
-        char pathbuf[KBOX_MAX_PATH];
-        rc = guest_mem_read_string(ctx, pid, kbox_syscall_request_arg(req, 1),
-                                   pathbuf, sizeof(pathbuf));
+        rc = translate_request_at_path(req, ctx, 0, 1, translated,
+                                       sizeof(translated), &lkl_dirfd);
         if (rc < 0)
             return kbox_dispatch_errno(-rc);
-
-        rc = kbox_translate_path_for_lkl(pid, pathbuf, ctx->host_root,
-                                         translated, sizeof(translated));
-        if (rc < 0)
-            return kbox_dispatch_errno(-rc);
-
         translated_path = translated;
-        lkl_dirfd = resolve_open_dirfd(translated, dirfd_raw, ctx->fd_table);
-        if (lkl_dirfd < 0 && lkl_dirfd != AT_FDCWD_LINUX)
+        if (should_continue_for_dirfd(lkl_dirfd))
             return kbox_dispatch_continue();
     } else {
         translated_path = NULL;

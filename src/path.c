@@ -32,6 +32,30 @@ static bool is_prefix_dir(const char *path, const char *prefix)
     return path[plen] == '\0' || path[plen] == '/';
 }
 
+static const char *component_end(const char *s)
+{
+    while (*s && *s != '/')
+        s++;
+    return s;
+}
+
+static bool proc_escape_tail(const char *tail)
+{
+    if (is_prefix_dir(tail, "root"))
+        return true;
+    if (is_prefix_dir(tail, "cwd"))
+        return true;
+    if (is_prefix_dir(tail, "exe"))
+        return true;
+    if (is_prefix_dir(tail, "fd"))
+        return true;
+    if (is_prefix_dir(tail, "fdinfo"))
+        return true;
+    if (is_prefix_dir(tail, "map_files"))
+        return true;
+    return false;
+}
+
 /* Check if the string at @s is composed entirely of decimal digits.
  * Returns true for non-empty all-digit strings (i.e., a numeric PID).
  */
@@ -81,8 +105,8 @@ bool kbox_is_proc_escape_path(const char *path)
         return false;
 
     /* Must be "self", "thread-self", or a numeric PID. */
-    bool is_self = (comp_len == 4 && memcmp(p, "self", 4) == 0);
-    bool is_thread_self = (comp_len == 11 && memcmp(p, "thread-self", 11) == 0);
+    bool is_self = (comp_len == 4 && !memcmp(p, "self", 4));
+    bool is_thread_self = (comp_len == 11 && !memcmp(p, "thread-self", 11));
     if (!is_self && !is_thread_self && !is_numeric(p, comp_len))
         return false;
 
@@ -107,15 +131,13 @@ bool kbox_is_proc_escape_path(const char *path)
         tail = tid_end + 1;
     }
 
-    /* Check for the dangerous symlink names. */
-    if (is_prefix_dir(tail, "root"))
-        return true;
-    if (is_prefix_dir(tail, "cwd"))
-        return true;
-    if (is_prefix_dir(tail, "exe"))
-        return true;
-
-    return false;
+    /* Check for dangerous symlink/directory names.
+     *
+     * root, cwd, exe: magic symlinks that resolve to host filesystem locations.
+     * fd, fdinfo: per-FD symlinks that resolve to host file objects.
+     * map_files: memory-mapping symlinks that resolve to host file paths.
+     */
+    return proc_escape_tail(tail);
 }
 
 bool kbox_is_lkl_virtual_path(const char *path)
@@ -157,6 +179,55 @@ bool kbox_is_loader_runtime_path(const char *path)
     if (starts_with(path, "/usr/lib64/"))
         return true;
     return false;
+}
+
+bool kbox_relative_path_has_dotdot(const char *path)
+{
+    if (!path)
+        return false;
+
+    while (*path) {
+        if (path[0] == '.' && path[1] == '.' &&
+            (path[2] == '/' || path[2] == '\0'))
+            return true;
+        while (*path && *path != '/')
+            path++;
+        while (*path == '/')
+            path++;
+    }
+    return false;
+}
+
+bool kbox_relative_proc_escape_path(const char *path)
+{
+    char probe[KBOX_MAX_PATH];
+    const char *tail;
+    const char *tid_end;
+    size_t task_len;
+    int n;
+
+    if (!path || path[0] == '\0')
+        return false;
+
+    /* From a /proc dirfd, "self/root/..." and similar are already enough. */
+    n = snprintf(probe, sizeof(probe), "/proc/%s", path);
+    if (n > 0 && (size_t) n < sizeof(probe) && kbox_is_proc_escape_path(probe))
+        return true;
+
+    /* From /proc/self, /proc/thread-self, or /proc/<pid>, look for direct
+     * magic entries like "root" plus task/<tid>/root escapes.
+     */
+    if (proc_escape_tail(path))
+        return true;
+
+    if (!starts_with(path, "task/"))
+        return false;
+    tail = path + 5;
+    tid_end = component_end(tail);
+    task_len = (size_t) (tid_end - tail);
+    if (task_len == 0 || !is_numeric(tail, task_len) || *tid_end != '/')
+        return false;
+    return proc_escape_tail(tid_end + 1);
 }
 
 /* Lexical path normalization.

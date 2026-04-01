@@ -306,6 +306,23 @@ static void test_proc_escape_task_tid(void)
     ASSERT_TRUE(!kbox_is_proc_escape_path("/proc/self/task/abc/root"));
 }
 
+static void test_proc_escape_fd_paths(void)
+{
+    /* fd, fdinfo, map_files are magic symlink directories. */
+    ASSERT_TRUE(kbox_is_proc_escape_path("/proc/self/fd"));
+    ASSERT_TRUE(kbox_is_proc_escape_path("/proc/self/fd/3"));
+    ASSERT_TRUE(kbox_is_proc_escape_path("/proc/1/fd/0"));
+    ASSERT_TRUE(kbox_is_proc_escape_path("/proc/self/fdinfo"));
+    ASSERT_TRUE(kbox_is_proc_escape_path("/proc/self/fdinfo/3"));
+    ASSERT_TRUE(kbox_is_proc_escape_path("/proc/1/map_files"));
+    ASSERT_TRUE(
+        kbox_is_proc_escape_path("/proc/self/map_files/7f000000-7f001000"));
+    ASSERT_TRUE(kbox_is_proc_escape_path("/proc/thread-self/fd/0"));
+    ASSERT_TRUE(kbox_is_proc_escape_path("/proc/self/task/1/fd/0"));
+    /* "fds" is not "fd" */
+    ASSERT_TRUE(!kbox_is_proc_escape_path("/proc/self/fds"));
+}
+
 static void test_proc_escape_not_escape(void)
 {
     /* Safe /proc paths must NOT be flagged. */
@@ -334,11 +351,50 @@ static void test_virtual_path_rejects_proc_escape(void)
     ASSERT_TRUE(!kbox_is_lkl_virtual_path("/proc/self/exe"));
     ASSERT_TRUE(!kbox_is_lkl_virtual_path("/proc/1/root"));
     ASSERT_TRUE(!kbox_is_lkl_virtual_path("/proc/42/cwd/foo"));
+    ASSERT_TRUE(!kbox_is_lkl_virtual_path("/proc/self/fd"));
+    ASSERT_TRUE(!kbox_is_lkl_virtual_path("/proc/self/fd/3"));
+    ASSERT_TRUE(!kbox_is_lkl_virtual_path("/proc/1/fdinfo/0"));
+    ASSERT_TRUE(!kbox_is_lkl_virtual_path("/proc/self/map_files/7f-7f"));
 
     /* Safe /proc paths still treated as virtual. */
     ASSERT_TRUE(kbox_is_lkl_virtual_path("/proc/self/status"));
     ASSERT_TRUE(kbox_is_lkl_virtual_path("/proc/cpuinfo"));
     ASSERT_TRUE(kbox_is_lkl_virtual_path("/proc/1/maps"));
+}
+
+static void test_relative_path_has_dotdot(void)
+{
+    ASSERT_TRUE(kbox_relative_path_has_dotdot(".."));
+    ASSERT_TRUE(kbox_relative_path_has_dotdot("../status"));
+    ASSERT_TRUE(kbox_relative_path_has_dotdot("proc/../../status"));
+    ASSERT_TRUE(kbox_relative_path_has_dotdot("proc/../status"));
+    ASSERT_TRUE(kbox_relative_path_has_dotdot("./../status"));
+
+    ASSERT_TRUE(!kbox_relative_path_has_dotdot(""));
+    ASSERT_TRUE(!kbox_relative_path_has_dotdot("."));
+    ASSERT_TRUE(!kbox_relative_path_has_dotdot("proc/self/status"));
+    ASSERT_TRUE(!kbox_relative_path_has_dotdot("proc/..hidden/status"));
+    ASSERT_TRUE(!kbox_relative_path_has_dotdot("proc/.../status"));
+    ASSERT_TRUE(!kbox_relative_path_has_dotdot("proc/..status"));
+}
+
+static void test_relative_proc_escape_path(void)
+{
+    ASSERT_TRUE(kbox_relative_proc_escape_path("self/root"));
+    ASSERT_TRUE(kbox_relative_proc_escape_path("thread-self/cwd"));
+    ASSERT_TRUE(kbox_relative_proc_escape_path("123/exe"));
+    ASSERT_TRUE(kbox_relative_proc_escape_path("root"));
+    ASSERT_TRUE(kbox_relative_proc_escape_path("fd/3"));
+    ASSERT_TRUE(kbox_relative_proc_escape_path("task/1/root"));
+    ASSERT_TRUE(kbox_relative_proc_escape_path("task/42/fd/7"));
+    ASSERT_TRUE(kbox_relative_proc_escape_path("task/9/map_files/7f-8f"));
+
+    ASSERT_TRUE(!kbox_relative_proc_escape_path(""));
+    ASSERT_TRUE(!kbox_relative_proc_escape_path("self/status"));
+    ASSERT_TRUE(!kbox_relative_proc_escape_path("status"));
+    ASSERT_TRUE(!kbox_relative_proc_escape_path("task/1/status"));
+    ASSERT_TRUE(!kbox_relative_proc_escape_path("task/abc/root"));
+    ASSERT_TRUE(!kbox_relative_proc_escape_path("tasks/1/root"));
 }
 
 void test_path_init(void)
@@ -368,6 +424,9 @@ void test_path_init(void)
     TEST_REGISTER(test_proc_escape_numeric_pid);
     TEST_REGISTER(test_proc_escape_thread_self);
     TEST_REGISTER(test_proc_escape_task_tid);
+    TEST_REGISTER(test_proc_escape_fd_paths);
     TEST_REGISTER(test_proc_escape_not_escape);
     TEST_REGISTER(test_virtual_path_rejects_proc_escape);
+    TEST_REGISTER(test_relative_path_has_dotdot);
+    TEST_REGISTER(test_relative_proc_escape_path);
 }
