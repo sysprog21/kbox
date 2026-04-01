@@ -1,0 +1,23 @@
+src/dispatch-net.c
+  95d0408c55b5ea1e 105-115
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.3",
+  "base_commit_sha": "000005ffa05785ddec9ebfa96493831a3abfa0bb",
+  "prompts": {
+    "95d0408c55b5ea1e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "086781ae-4cf8-42ab-995e-e5e0303383b2",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang",
+      "messages": [],
+      "total_additions": 17,
+      "total_deletions": 6,
+      "accepted_lines": 11,
+      "overriden_lines": 0
+    }
+  }
+}
