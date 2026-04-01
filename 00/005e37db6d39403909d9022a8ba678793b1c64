@@ -1,0 +1,27 @@
+src/seccomp-supervisor.c
+  95d0408c55b5ea1e 12,364-401
+src/seccomp.h
+  95d0408c55b5ea1e 102
+src/seccomp-dispatch.c
+  95d0408c55b5ea1e 2350-2359,2580-2586
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.3",
+  "base_commit_sha": "00005e37db6d39403909d9022a8ba678793b1c64",
+  "prompts": {
+    "95d0408c55b5ea1e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "086781ae-4cf8-42ab-995e-e5e0303383b2",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang",
+      "messages": [],
+      "total_additions": 57,
+      "total_deletions": 0,
+      "accepted_lines": 57,
+      "overriden_lines": 0
+    }
+  }
+}
