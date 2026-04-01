@@ -1,0 +1,36 @@
+tests/guest/clone3-test.c
+  1ed227d61605aba0 150-152,154-156
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.3",
+  "base_commit_sha": "0000600bf130ab1d2c7f579f41f2067464a24342",
+  "prompts": {
+    "1ed227d61605aba0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "78d8e65e-9e48-4bcc-8b1c-2a3963b9b10d",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang",
+      "messages": [],
+      "total_additions": 6,
+      "total_deletions": 2,
+      "accepted_lines": 6,
+      "overriden_lines": 0
+    },
+    "95d0408c55b5ea1e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "086781ae-4cf8-42ab-995e-e5e0303383b2",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 460,
+      "overriden_lines": 0
+    }
+  }
+}
