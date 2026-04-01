@@ -888,6 +888,33 @@ int guest_mem_write_small_metadata(const struct kbox_supervisor_ctx *ctx,
     return 0;
 }
 
+/* Build the host-side path for a guest-relative (translated) path.
+ * When host_root is set, translated is relative to host_root (the prefix was
+ * stripped by kbox_translate_path_for_lkl).  Re-prefix it so open() resolves
+ * against the correct directory instead of the supervisor's real root.
+ */
+static int build_host_open_path(const struct kbox_supervisor_ctx *ctx,
+                                const char *translated,
+                                char *out,
+                                size_t out_size)
+{
+    int n;
+
+    if (!ctx->host_root) {
+        n = snprintf(out, out_size, "%s", translated);
+        return (n >= 0 && (size_t) n < out_size) ? 0 : -1;
+    }
+
+    /* translated is absolute (starts with '/'), skip the leading '/' when
+     * joining to avoid double-slash.
+     */
+    const char *tail = translated;
+    if (*tail == '/')
+        tail++;
+    n = snprintf(out, out_size, "%s/%s", ctx->host_root, tail);
+    return (n >= 0 && (size_t) n < out_size) ? 0 : -1;
+}
+
 int reopen_cached_shadow_fd(struct kbox_supervisor_ctx *ctx,
                             const struct kbox_path_shadow_cache_entry *entry)
 {
@@ -898,9 +925,13 @@ int reopen_cached_shadow_fd(struct kbox_supervisor_ctx *ctx,
     if (!entry)
         return -1;
     if (entry->path[0] != '\0') {
-        fd = open(entry->path, O_RDONLY | O_CLOEXEC);
-        if (fd >= 0)
-            return fd;
+        char host_path[KBOX_MAX_PATH];
+        if (build_host_open_path(ctx, entry->path, host_path,
+                                 sizeof(host_path)) == 0) {
+            fd = open(host_path, O_RDONLY | O_CLOEXEC);
+            if (fd >= 0)
+                return fd;
+        }
     }
     fd = entry->memfd;
     if (fd < 0)
@@ -1235,7 +1266,13 @@ int ensure_path_shadow_cache(struct kbox_supervisor_ctx *ctx,
     if (entry)
         return 1;
 
-    host_fd = open(translated, O_RDONLY | O_CLOEXEC);
+    {
+        char host_path[KBOX_MAX_PATH];
+        if (build_host_open_path(ctx, translated, host_path,
+                                 sizeof(host_path)) < 0)
+            return 0;
+        host_fd = open(host_path, O_RDONLY | O_CLOEXEC);
+    }
     if (host_fd < 0)
         return 0;
 
