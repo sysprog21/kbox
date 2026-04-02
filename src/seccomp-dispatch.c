@@ -634,6 +634,13 @@ int guest_addr_is_writable(pid_t pid, uint64_t addr)
     return 1;
 }
 
+struct guest_file_backing_interval {
+    uint64_t file_start;
+    uint64_t file_end;
+    unsigned long long inode;
+    char dev[32];
+};
+
 int guest_range_has_shared_file_write_mapping(pid_t pid,
                                               uint64_t addr,
                                               uint64_t len)
@@ -642,6 +649,10 @@ int guest_range_has_shared_file_write_mapping(pid_t pid,
     FILE *fp;
     char line[512];
     uint64_t end_addr;
+    struct guest_file_backing_interval *targets = NULL;
+    size_t target_count = 0;
+    size_t target_cap = 0;
+    int rc = 0;
 
     if (len == 0)
         return 0;
@@ -658,24 +669,107 @@ int guest_range_has_shared_file_write_mapping(pid_t pid,
         unsigned long long offset;
         char perms[8];
         char dev[32];
+        uint64_t overlap_start;
+        uint64_t overlap_end;
+        struct guest_file_backing_interval *new_targets;
 
         if (sscanf(line, "%llx-%llx %7s %llx %31s %llu", &start, &end, perms,
                    &offset, dev, &inode) != 6)
             continue;
-        (void) offset;
-        (void) dev;
         if (inode == 0)
             continue;
         if (end <= addr || start >= end_addr)
             continue;
-        if (strchr(perms, 's') == NULL || strchr(perms, 'w') == NULL)
+        if (strchr(perms, 's') == NULL)
             continue;
-        fclose(fp);
-        return 1;
+        overlap_start = addr > start ? addr : (uint64_t) start;
+        overlap_end = end_addr < end ? end_addr : (uint64_t) end;
+        if (overlap_start >= overlap_end)
+            continue;
+        if (target_count == target_cap) {
+            size_t new_cap = target_cap == 0 ? 4 : target_cap * 2;
+
+            new_targets = realloc(targets, new_cap * sizeof(*targets));
+            if (!new_targets) {
+                rc = -1;
+                goto out;
+            }
+            targets = new_targets;
+            target_cap = new_cap;
+        }
+        if (__builtin_add_overflow((uint64_t) offset,
+                                   overlap_start - (uint64_t) start,
+                                   &targets[target_count].file_start)) {
+            rc = -1;
+            goto out;
+        }
+        if (__builtin_add_overflow(targets[target_count].file_start,
+                                   overlap_end - overlap_start,
+                                   &targets[target_count].file_end)) {
+            rc = -1;
+            goto out;
+        }
+        targets[target_count].inode = inode;
+        memcpy(targets[target_count].dev, dev,
+               sizeof(targets[target_count].dev));
+        targets[target_count].dev[sizeof(targets[target_count].dev) - 1] = '\0';
+        target_count++;
     }
 
     fclose(fp);
-    return 0;
+    fp = NULL;
+
+    if (target_count == 0)
+        goto out;
+
+    fp = fopen(maps_path, "re");
+    if (!fp) {
+        rc = -1;
+        goto out;
+    }
+
+    while (fgets(line, sizeof(line), fp)) {
+        unsigned long long start, end, inode;
+        unsigned long long offset;
+        char perms[8];
+        char dev[32];
+        uint64_t map_file_start;
+        uint64_t map_file_end;
+        size_t i;
+
+        if (sscanf(line, "%llx-%llx %7s %llx %31s %llu", &start, &end, perms,
+                   &offset, dev, &inode) != 6)
+            continue;
+        if (inode == 0)
+            continue;
+        if (strchr(perms, 's') == NULL || strchr(perms, 'w') == NULL)
+            continue;
+        map_file_start = (uint64_t) offset;
+        if (__builtin_add_overflow(map_file_start,
+                                   (uint64_t) end - (uint64_t) start,
+                                   &map_file_end)) {
+            rc = -1;
+            goto out;
+        }
+        for (i = 0; i < target_count; i++) {
+            if (targets[i].inode != inode)
+                continue;
+            if (strcmp(targets[i].dev, dev) != 0)
+                continue;
+            if (map_file_end <= targets[i].file_start ||
+                map_file_start >= targets[i].file_end) {
+                continue;
+            }
+            rc = 1;
+            goto out;
+        }
+    }
+
+out:
+    if (fp)
+        fclose(fp);
+    free(targets);
+    return rc;
 }
 
 void invalidate_translated_path_cache(struct kbox_supervisor_ctx *ctx)

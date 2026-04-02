@@ -1,10 +1,9 @@
 /* SPDX-License-Identifier: MIT */
-/* Guest probe: check whether a shared RW/RX alias of the same backing object
- * is possible under trap/rewrite mode.
+/* Guest probe: check whether shared-file executable aliases are blocked under
+ * trap/rewrite mode.
  *
- * This is a boundary probe for the still-open per-object W^X gap. It is not
- * wired into default integration because the current expected outcome is host
- * and implementation dependent while the mitigation remains incomplete.
+ * This covers both direct shared executable mappings and executable promotion
+ * through a second alias of the same backing object.
  */
 
 #include <errno.h>
@@ -49,7 +48,7 @@ int main(void)
     long page_size = sysconf(_SC_PAGESIZE);
     char path[] = "/tmp/jit-alias-XXXXXX";
     void *rw_map;
-    void *rx_map;
+    void *ro_map;
     unsigned char *rw;
     int fd;
     int mmap_errno;
@@ -71,17 +70,25 @@ int main(void)
     }
     rw = rw_map;
 
+    ro_map = mmap(NULL, (size_t) page_size, PROT_READ, MAP_SHARED, fd, 0);
+    if (ro_map == MAP_FAILED)
+        fail_now("FAIL: shared RO alias mmap\n");
+
     errno = 0;
-    rx_map = mmap(NULL, (size_t) page_size, PROT_READ | PROT_EXEC, MAP_SHARED,
+    rc = mprotect(ro_map, (size_t) page_size, PROT_READ | PROT_EXEC);
+    if (rc == 0)
+        fail_now("FAIL: jit_alias_shared_exec_mprotect_allowed\n");
+    CHECK(errno == EACCES, "shared alias RX mprotect should fail with EACCES");
+    (void) munmap(ro_map, (size_t) page_size);
+
+    errno = 0;
+    ro_map = mmap(NULL, (size_t) page_size, PROT_READ | PROT_EXEC, MAP_SHARED,
                   fd, 0);
-    if (rx_map == MAP_FAILED) {
+    if (ro_map == MAP_FAILED) {
         mmap_errno = errno;
-        errno = 0;
-        rc = mprotect(rw, (size_t) page_size, PROT_READ | PROT_EXEC);
-        if (rc == 0)
-            fail_now("FAIL: jit_alias_shared_exec_mprotect_allowed\n");
+        CHECK(mmap_errno == EACCES, "shared RX mmap should fail with EACCES");
         printf("PASS: jit_alias_blocked mmap_errno=%d mprotect_errno=%d\n",
-               mmap_errno, errno);
+               mmap_errno, EACCES);
         munmap(rw, (size_t) page_size);
         close(fd);
         return 0;

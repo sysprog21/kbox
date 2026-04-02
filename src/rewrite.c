@@ -15,6 +15,7 @@
 
 #include "io-util.h"
 #include "kbox/x86-decode.h"
+#include "procmem.h"
 #include "rewrite.h"
 #include "syscall-nr.h"
 #include "syscall-trap.h"
@@ -41,6 +42,7 @@
 #define AARCH64_VENEER_SIZE 16u /* LDR x16, +8; BR x16; .quad target */
 #define AARCH64_VENEER_SEARCH_STEP (64u * 1024u)
 #define AARCH64_VENEER_SEARCH_LIMIT ((uint64_t) 127 * 1024 * 1024)
+#define KBOX_REWRITE_SCAN_CHUNK (64u * 1024u)
 
 #ifndef MAP_FIXED_NOREPLACE
 #define MAP_FIXED_NOREPLACE 0x100000
@@ -87,6 +89,11 @@ static inline void store_active_rewrite_runtime(
     struct kbox_rewrite_runtime *runtime)
 {
     __atomic_store_n(&active_rewrite_runtime, runtime, __ATOMIC_RELEASE);
+}
+
+struct kbox_rewrite_runtime *kbox_rewrite_runtime_active(void)
+{
+    return load_active_rewrite_runtime();
 }
 
 static void write_le32(unsigned char out[4], uint32_t value);
@@ -2302,6 +2309,8 @@ static int alloc_aarch64_veneer_page(struct kbox_rewrite_runtime *runtime,
 #if defined(__aarch64__)
     uint64_t page_size;
     uint64_t search_lo, search_hi, addr;
+    uint64_t hint;
+    int64_t delta;
     void *region;
 
     if (!runtime || !veneer_base_out)
@@ -2321,6 +2330,24 @@ static int alloc_aarch64_veneer_page(struct kbox_rewrite_runtime *runtime,
     if (__builtin_add_overflow(near_addr, AARCH64_VENEER_SEARCH_LIMIT,
                                &search_hi))
         search_hi = UINT64_MAX - page_size;
+
+    hint = (near_addr + page_size) & ~(page_size - 1);
+    region = mmap((void *) (uintptr_t) hint, (size_t) page_size,
+                  PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (region != MAP_FAILED) {
+        delta = (int64_t) (uintptr_t) region - (int64_t) near_addr;
+        if (delta > -AARCH64_B_RANGE && delta < AARCH64_B_RANGE) {
+            runtime->trampoline_regions[runtime->trampoline_region_count]
+                .mapping = region;
+            runtime->trampoline_regions[runtime->trampoline_region_count].size =
+                (size_t) page_size;
+            runtime->trampoline_region_count++;
+            *veneer_base_out = (uint64_t) (uintptr_t) region;
+            return 0;
+        }
+        // cppcheck-suppress nullPointerOutOfMemory
+        munmap(region, (size_t) page_size);
+    }
 
     /* Search upward first (likely to succeed, past the mapping). */
     for (addr = (near_addr + page_size) & ~(page_size - 1); addr <= search_hi;
@@ -3649,6 +3676,157 @@ static int alloc_x86_64_trampoline_region(
     errno = ENOTSUP;
     return -1;
 #endif
+}
+
+static int collect_exec_region_sites(enum kbox_rewrite_arch arch,
+                                     uint64_t addr,
+                                     size_t len,
+                                     struct site_array *array)
+{
+    unsigned char *buf;
+    size_t chunk_size;
+    size_t overlap;
+    size_t offset = 0;
+
+    if (!array || len == 0)
+        return -1;
+
+    if (arch == KBOX_REWRITE_ARCH_X86_64) {
+        chunk_size = KBOX_REWRITE_SCAN_CHUNK;
+        overlap = 1;
+    } else if (arch == KBOX_REWRITE_ARCH_AARCH64) {
+        chunk_size = KBOX_REWRITE_SCAN_CHUNK;
+        overlap = 0;
+    } else {
+        errno = ENOTSUP;
+        return -1;
+    }
+    if ((chunk_size & 3u) != 0) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    buf = malloc(chunk_size + overlap);
+    if (!buf)
+        return -1;
+
+    while (offset < len) {
+        size_t to_read = len - offset;
+        int rc;
+
+        if (to_read > chunk_size)
+            to_read = chunk_size;
+        rc = kbox_current_read(addr + offset, buf, to_read);
+        if (rc < 0) {
+            free(buf);
+            errno = -rc;
+            return -1;
+        }
+
+        if (arch == KBOX_REWRITE_ARCH_X86_64) {
+            for (size_t i = 0; i + 1 < to_read; i++) {
+                struct kbox_rewrite_site site;
+
+                if (buf[i] != 0x0f ||
+                    (buf[i + 1] != 0x05 && buf[i + 1] != 0x34)) {
+                    continue;
+                }
+                memset(&site, 0, sizeof(site));
+                site.file_offset = offset + i;
+                site.vaddr = addr + offset + i;
+                site.segment_vaddr = addr;
+                site.segment_mem_size = len;
+                site.width = 2;
+                site.original[0] = buf[i];
+                site.original[1] = buf[i + 1];
+                site.site_class = KBOX_REWRITE_SITE_UNKNOWN;
+                if (collect_sites_array_cb(&site, array) < 0) {
+                    free(buf);
+                    return -1;
+                }
+                free(buf);
+                return 0;
+            }
+        } else {
+            for (size_t i = 0; i + 3 < to_read; i += 4) {
+                struct kbox_rewrite_site site;
+
+                if (buf[i] != 0x01 || buf[i + 1] != 0x00 ||
+                    buf[i + 2] != 0x00 || buf[i + 3] != 0xd4) {
+                    continue;
+                }
+                memset(&site, 0, sizeof(site));
+                site.file_offset = offset + i;
+                site.vaddr = addr + offset + i;
+                site.segment_vaddr = addr;
+                site.segment_mem_size = len;
+                site.width = 4;
+                memcpy(site.original, buf + i, 4);
+                site.site_class = KBOX_REWRITE_SITE_UNKNOWN;
+                if (collect_sites_array_cb(&site, array) < 0) {
+                    free(buf);
+                    return -1;
+                }
+                free(buf);
+                return 0;
+            }
+        }
+
+        if (to_read == len - offset)
+            break;
+        offset += to_read - overlap;
+    }
+
+    free(buf);
+    return 0;
+}
+
+int kbox_rewrite_runtime_promote_exec_region(
+    struct kbox_rewrite_runtime *runtime,
+    uint64_t addr,
+    uint64_t len)
+{
+    struct site_array sites;
+    enum kbox_rewrite_arch arch = KBOX_REWRITE_ARCH_UNKNOWN;
+    int rc = -1;
+
+    if (len == 0)
+        return 0;
+    if (len > (uint64_t) SIZE_MAX) {
+        errno = EOVERFLOW;
+        return -1;
+    }
+    if (runtime && runtime->installed)
+        arch = runtime->arch;
+    else {
+#if defined(__x86_64__)
+        arch = KBOX_REWRITE_ARCH_X86_64;
+#elif defined(__aarch64__)
+        arch = KBOX_REWRITE_ARCH_AARCH64;
+#endif
+    }
+    if (arch == KBOX_REWRITE_ARCH_UNKNOWN) {
+        errno = ENOTSUP;
+        return -1;
+    }
+    memset(&sites, 0, sizeof(sites));
+
+    if (collect_exec_region_sites(arch, addr, (size_t) len, &sites) < 0)
+        goto out;
+    if (runtime && runtime->ctx && runtime->ctx->verbose) {
+        fprintf(stderr,
+                "kbox: scan-on-X: addr=0x%llx len=%llu sites=%zu arch=%s\n",
+                (unsigned long long) addr, (unsigned long long) len,
+                sites.count, kbox_rewrite_arch_name(arch));
+    }
+    if (sites.count == 0)
+        rc = 0;
+    else
+        errno = EACCES;
+
+out:
+    free_site_array(&sites);
+    return rc;
 }
 
 static int collect_launch_sites(struct runtime_site_array *array,

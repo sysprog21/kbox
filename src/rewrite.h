@@ -304,8 +304,13 @@ int kbox_rewrite_apply_memfd_phase1_path_candidates(
     size_t *applied_count,
     struct kbox_rewrite_report *report);
 void kbox_rewrite_runtime_reset(struct kbox_rewrite_runtime *runtime);
+struct kbox_rewrite_runtime *kbox_rewrite_runtime_active(void);
 int kbox_rewrite_runtime_install(struct kbox_rewrite_runtime *runtime,
                                  struct kbox_supervisor_ctx *ctx,
                                  struct kbox_loader_launch *launch);
+int kbox_rewrite_runtime_promote_exec_region(
+    struct kbox_rewrite_runtime *runtime,
+    uint64_t addr,
+    uint64_t len);
 
 #endif /* KBOX_REWRITE_H */
