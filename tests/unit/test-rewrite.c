@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: MIT */
 
+#include <errno.h>
 #include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
@@ -943,6 +944,36 @@ static void test_rewrite_origin_map_add_site_source(void)
     kbox_rewrite_origin_map_reset(&map);
 }
 
+static void test_rewrite_origin_map_seal(void)
+{
+    struct kbox_rewrite_origin_map map;
+    struct kbox_rewrite_site site;
+    struct kbox_rewrite_origin_entry entry;
+
+    memset(&site, 0, sizeof(site));
+    site.vaddr = 0x3000;
+    site.width = 2;
+    site.original[0] = 0x0f;
+    site.original[1] = 0x05;
+
+    kbox_rewrite_origin_map_init(&map, KBOX_REWRITE_ARCH_X86_64);
+    ASSERT_EQ(kbox_rewrite_origin_map_add_site_source(&map, &site,
+                                                      KBOX_LOADER_MAPPING_MAIN),
+              0);
+    ASSERT_EQ(kbox_rewrite_origin_map_seal(&map), 0);
+    ASSERT_TRUE(map.sealed);
+    ASSERT_TRUE(map.mapping_size >= sizeof(*map.entries));
+    ASSERT_EQ(kbox_rewrite_origin_map_find(&map, 0x3002, &entry), 1);
+    ASSERT_EQ(entry.origin, 0x3002);
+    ASSERT_EQ(entry.source, KBOX_LOADER_MAPPING_MAIN);
+    errno = 0;
+    ASSERT_EQ(kbox_rewrite_origin_map_add_site_source(
+                  &map, &site, KBOX_LOADER_MAPPING_INTERP),
+              -1);
+    ASSERT_EQ(errno, EPERM);
+    kbox_rewrite_origin_map_reset(&map);
+}
+
 static void test_rewrite_probe_x86_64_page_zero_allowed(void)
 {
     struct kbox_rewrite_trampoline_probe probe;
@@ -1456,6 +1487,7 @@ void test_rewrite_init(void)
     TEST_REGISTER(test_rewrite_origin_map_x86_64);
     TEST_REGISTER(test_rewrite_origin_map_aarch64);
     TEST_REGISTER(test_rewrite_origin_map_add_site_source);
+    TEST_REGISTER(test_rewrite_origin_map_seal);
     TEST_REGISTER(test_rewrite_probe_x86_64_page_zero_allowed);
     TEST_REGISTER(test_rewrite_probe_x86_64_page_zero_blocked);
     TEST_REGISTER(test_rewrite_fast_host_syscall0_classification);

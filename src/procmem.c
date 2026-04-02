@@ -76,11 +76,13 @@ static void restore_default_and_reraise(int sig)
 
 static int action_uses_fault_handler(const struct sigaction *sa)
 {
+    const void *fault_handler_ptr = (const void *) (uintptr_t) &fault_handler;
+
     if (!sa)
         return 0;
     if ((sa->sa_flags & SA_SIGINFO) != 0)
         return sa->sa_sigaction == fault_handler;
-    return sa->sa_handler == (void (*)(int)) fault_handler;
+    return (const void *) (uintptr_t) sa->sa_handler == fault_handler_ptr;
 }
 
 static void fault_handler(int sig, siginfo_t *info, void *ucontext)

@@ -96,6 +96,8 @@ struct kbox_rewrite_origin_map {
     struct kbox_rewrite_origin_entry *entries;
     size_t count;
     size_t cap;
+    size_t mapping_size;
+    int sealed;
 };
 
 struct kbox_rewrite_runtime {
@@ -209,6 +211,7 @@ int kbox_rewrite_origin_map_build_elf(struct kbox_rewrite_origin_map *map,
 int kbox_rewrite_origin_map_build_memfd(struct kbox_rewrite_origin_map *map,
                                         int fd,
                                         struct kbox_rewrite_report *report);
+int kbox_rewrite_origin_map_seal(struct kbox_rewrite_origin_map *map);
 int kbox_rewrite_encode_patch(const struct kbox_rewrite_site *site,
                               uint64_t trampoline_addr,
                               struct kbox_rewrite_patch *patch);

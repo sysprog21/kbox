@@ -514,7 +514,8 @@ static void *server_thread_fn(void *arg)
                     const char *err =
                         "HTTP/1.1 413 Payload Too Large\r\n"
                         "Connection: close\r\n\r\n";
-                    (void) write(fd, err, strlen(err));
+                    ssize_t written = write(fd, err, strlen(err));
+                    (void) written;
                     epoll_ctl(ctx->epoll_fd, EPOLL_CTL_DEL, fd, NULL);
                     close(fd);
                     continue;
@@ -775,8 +776,10 @@ void kbox_web_shutdown(struct kbox_web_ctx *ctx)
     if (ctx->server_running) {
         ctx->server_running = 0;
         /* Signal the server thread to wake up and exit */
-        if (ctx->shutdown_pipe[1] >= 0)
-            (void) write(ctx->shutdown_pipe[1], "x", 1);
+        if (ctx->shutdown_pipe[1] >= 0) {
+            ssize_t written = write(ctx->shutdown_pipe[1], "x", 1);
+            (void) written;
+        }
         pthread_join(ctx->server_thread, NULL);
     }
 
@@ -832,7 +835,9 @@ void kbox_web_tick(struct kbox_web_ctx *ctx)
         int len = kbox_snapshot_to_json(&snap, json, sizeof(json) - 1);
         if (len > 0 && len < (int) sizeof(json) - 1) {
             json[len] = '\n';
-            (void) write(ctx->cfg.trace_fd, json, (size_t) (len + 1));
+            ssize_t written =
+                write(ctx->cfg.trace_fd, json, (size_t) (len + 1));
+            (void) written;
         }
     }
 }
@@ -909,7 +914,9 @@ void kbox_web_record_syscall(struct kbox_web_ctx *ctx,
         int len = kbox_event_to_json(&e, json, sizeof(json) - 1);
         if (len > 0 && len < (int) sizeof(json) - 1) {
             json[len] = '\n';
-            (void) write(ctx->cfg.trace_fd, json, (size_t) (len + 1));
+            ssize_t written =
+                write(ctx->cfg.trace_fd, json, (size_t) (len + 1));
+            (void) written;
         }
     }
 }

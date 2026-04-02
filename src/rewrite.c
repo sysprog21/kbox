@@ -494,6 +494,11 @@ static uint64_t align_up_u64_or_zero(uint64_t value, uint64_t align)
     return (value + mask) & ~mask;
 }
 
+static int origin_map_is_sealed(const struct kbox_rewrite_origin_map *map)
+{
+    return map && map->sealed;
+}
+
 static int rewrite_origin_addr(const struct kbox_rewrite_site *site,
                                uint64_t *origin_out)
 {
@@ -1907,10 +1912,17 @@ void kbox_rewrite_origin_map_reset(struct kbox_rewrite_origin_map *map)
 {
     if (!map)
         return;
-    free(map->entries);
+    if (map->entries) {
+        if (map->sealed && map->mapping_size > 0)
+            munmap(map->entries, map->mapping_size);
+        else
+            free(map->entries);
+    }
     map->entries = NULL;
     map->count = 0;
     map->cap = 0;
+    map->mapping_size = 0;
+    map->sealed = 0;
 }
 
 int kbox_rewrite_origin_map_add_site_source(
@@ -1924,6 +1936,10 @@ int kbox_rewrite_origin_map_add_site_source(
 
     if (!map || !site)
         return -1;
+    if (origin_map_is_sealed(map)) {
+        errno = EPERM;
+        return -1;
+    }
     if (rewrite_origin_addr(site, &origin) < 0) {
         if (errno == 0)
             errno = EINVAL;
@@ -2064,6 +2080,69 @@ int kbox_rewrite_origin_map_build_memfd(struct kbox_rewrite_origin_map *map,
     kbox_rewrite_origin_map_reset(map);
     return kbox_rewrite_visit_memfd_sites(fd, origin_map_collect_site_cb, map,
                                           report ? report : &local_report);
+}
+
+int kbox_rewrite_origin_map_seal(struct kbox_rewrite_origin_map *map)
+{
+    long page_size_long;
+    size_t page_size;
+    uint64_t bytes_u64;
+    uint64_t alloc_u64;
+    size_t alloc_size;
+    void *sealed_map;
+    struct kbox_rewrite_origin_entry *sealed_entries;
+
+    if (!map)
+        return -1;
+    if (map->sealed)
+        return 0;
+    if (!map->entries || map->count == 0) {
+        map->sealed = 1;
+        return 0;
+    }
+
+    page_size_long = sysconf(_SC_PAGESIZE);
+    if (page_size_long <= 0) {
+        if (page_size_long == -1 && errno == 0)
+            errno = EINVAL;
+        return -1;
+    }
+    page_size = (size_t) page_size_long;
+    if (page_size == 0 || (page_size & (page_size - 1)) != 0)
+        return -1;
+    if (__builtin_mul_overflow((uint64_t) map->count,
+                               (uint64_t) sizeof(*map->entries), &bytes_u64)) {
+        errno = EOVERFLOW;
+        return -1;
+    }
+    alloc_u64 = align_up_u64_or_zero(bytes_u64, (uint64_t) page_size);
+    if (alloc_u64 == 0 || alloc_u64 > (uint64_t) SIZE_MAX) {
+        errno = EOVERFLOW;
+        return -1;
+    }
+    alloc_size = (size_t) alloc_u64;
+
+    sealed_map = mmap(NULL, alloc_size, PROT_READ | PROT_WRITE,
+                      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (sealed_map == MAP_FAILED)
+        return -1;
+    sealed_entries = sealed_map;
+
+    // cppcheck-suppress nullPointerOutOfMemory
+    memcpy(sealed_entries, map->entries, (size_t) bytes_u64);
+    if (mprotect(sealed_entries, alloc_size, PROT_READ) != 0) {
+        int saved = errno;
+        munmap(sealed_entries, alloc_size);
+        errno = saved;
+        return -1;
+    }
+
+    free(map->entries);
+    map->entries = sealed_entries;
+    map->cap = map->count;
+    map->mapping_size = alloc_size;
+    map->sealed = 1;
+    return 0;
 }
 
 static int runtime_site_array_append(struct runtime_site_array *array,
@@ -4030,6 +4109,8 @@ int kbox_rewrite_runtime_install(struct kbox_rewrite_runtime *runtime,
     flush_exec_mappings(launch);
     restore_exec_mapping_prot(launch, prot);
     writable = 0;
+    if (kbox_rewrite_origin_map_seal(&runtime->origin_map) < 0)
+        goto out;
     store_active_rewrite_runtime(runtime);
     runtime->installed = 1;
     rc = 0;

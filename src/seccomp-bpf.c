@@ -30,6 +30,7 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 
+#include "kbox/compiler.h"
 #include "seccomp.h"
 #include "syscall-trap-signal.h"
 
@@ -523,7 +524,16 @@ int kbox_install_seccomp_trap(const struct kbox_host_nrs *h)
     return install_seccomp_filter(h, KBOX_SECCOMP_RET_TRAP, 0, &allow_range, 1);
 }
 
-static int install_seccomp_trap_ranges_ex(
+/* A successful seccomp install returns into userspace with the filter already
+ * active. Keep this return path free of sanitizer/runtime syscalls so the
+ * launch code can branch straight into the guest.
+ */
+__attribute__((no_stack_protector))
+#if KBOX_HAS_ASAN
+__attribute__((no_sanitize("address")))
+#endif
+__attribute__((no_sanitize("undefined"))) static int
+install_seccomp_trap_ranges_ex(
     const struct kbox_host_nrs *h,
     const struct kbox_syscall_trap_ip_range *trap_ranges,
     size_t trap_range_count)

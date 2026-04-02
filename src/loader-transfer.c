@@ -37,16 +37,16 @@ int kbox_loader_prepare_transfer(const struct kbox_loader_handoff *handoff,
     return 0;
 }
 
-/* Suppress ASAN: this function switches to the guest stack and jumps to
- * guest code.  ASAN's stack tracking doesn't know about the guest stack
- * and would flag every subsequent stack access as a buffer overflow.
+/* The transfer boundary must not run sanitizer/runtime callbacks or stack
+ * protector epilogues. It switches to the guest stack and branches into
+ * guest code after the exec-range seccomp filter is active.
  */
-__attribute__((noreturn))
+__attribute__((noreturn)) __attribute__((no_stack_protector))
 #if KBOX_HAS_ASAN
 __attribute__((no_sanitize("address")))
 #endif
-void kbox_loader_transfer_to_guest(
-    const struct kbox_loader_transfer_state *state)
+__attribute__((no_sanitize("undefined"))) void
+kbox_loader_transfer_to_guest(const struct kbox_loader_transfer_state *state)
 {
     if (!state)
         __builtin_trap();

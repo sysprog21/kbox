@@ -73,12 +73,24 @@ struct kbox_dispatch forward_mmap(const struct kbox_syscall_request *req,
     /* W^X enforcement for mmap in trap/rewrite mode. */
     if (request_uses_trap_signals(req)) {
         int prot = (int) kbox_syscall_request_arg(req, 2);
+        int mmap_flags = (int) kbox_syscall_request_arg(req, 3);
+        long mmap_fd = to_dirfd_arg(kbox_syscall_request_arg(req, 4));
         if ((prot & (PROT_WRITE | PROT_EXEC)) == (PROT_WRITE | PROT_EXEC)) {
             if (ctx->verbose)
                 fprintf(stderr,
                         "kbox: mmap denied: "
                         "W^X violation (prot=0x%x, pid=%u)\n",
                         prot, kbox_syscall_request_pid(req));
+            return kbox_dispatch_errno(EACCES);
+        }
+        if (mmap_fd != -1 && (mmap_flags & MAP_SHARED) != 0 &&
+            (prot & PROT_EXEC) != 0) {
+            if (ctx->verbose)
+                fprintf(stderr,
+                        "kbox: mmap denied: shared executable file mapping "
+                        "(prot=0x%x flags=0x%x fd=%ld pid=%u)\n",
+                        prot, mmap_flags, mmap_fd,
+                        kbox_syscall_request_pid(req));
             return kbox_dispatch_errno(EACCES);
         }
     }
@@ -163,6 +175,30 @@ struct kbox_dispatch forward_mprotect(const struct kbox_syscall_request *req,
                     (unsigned long long) addr, (unsigned long long) len,
                     kbox_syscall_request_pid(req));
         return kbox_dispatch_errno(EACCES);
+    }
+
+    if ((prot & PROT_EXEC) != 0) {
+        int alias_rc = guest_range_has_shared_file_write_mapping(
+            kbox_syscall_request_pid(req), addr, len);
+        if (alias_rc < 0) {
+            if (ctx->verbose)
+                fprintf(stderr,
+                        "kbox: mprotect denied: cannot inspect shared "
+                        "mapping state at 0x%llx len=%llu (pid=%u)\n",
+                        (unsigned long long) addr, (unsigned long long) len,
+                        kbox_syscall_request_pid(req));
+            return kbox_dispatch_errno(EACCES);
+        }
+        if (alias_rc > 0) {
+            if (ctx->verbose)
+                fprintf(stderr,
+                        "kbox: mprotect denied: executable promotion of "
+                        "shared writable file mapping at 0x%llx len=%llu "
+                        "(pid=%u)\n",
+                        (unsigned long long) addr, (unsigned long long) len,
+                        kbox_syscall_request_pid(req));
+            return kbox_dispatch_errno(EACCES);
+        }
     }
 
     /* Allow the mprotect to proceed via host kernel. If the page transitions
@@ -566,7 +602,8 @@ static struct kbox_dispatch trap_userspace_exec(
         int launch_rc = kbox_loader_prepare_launch(&spec, &launch);
         if (launch_rc < 0) {
             const char msg[] = "kbox: trap exec: loader prepare failed\n";
-            (void) write(STDERR_FILENO, msg, sizeof(msg) - 1);
+            ssize_t n = write(STDERR_FILENO, msg, sizeof(msg) - 1);
+            (void) n;
             _exit(127);
         }
     }

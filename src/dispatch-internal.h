@@ -267,6 +267,9 @@ int translate_request_at_path(const struct kbox_syscall_request *req,
                               long *lkl_dirfd);
 int should_continue_for_dirfd(long lkl_dirfd);
 int guest_addr_is_writable(pid_t pid, uint64_t addr);
+int guest_range_has_shared_file_write_mapping(pid_t pid,
+                                              uint64_t addr,
+                                              uint64_t len);
 int dup_tracee_fd(pid_t pid, int tracee_fd);
 void translate_proc_self(const char *path,
                          pid_t pid,

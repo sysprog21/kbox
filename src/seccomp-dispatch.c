@@ -634,6 +634,50 @@ int guest_addr_is_writable(pid_t pid, uint64_t addr)
     return 1;
 }
 
+int guest_range_has_shared_file_write_mapping(pid_t pid,
+                                              uint64_t addr,
+                                              uint64_t len)
+{
+    char maps_path[64];
+    FILE *fp;
+    char line[512];
+    uint64_t end_addr;
+
+    if (len == 0)
+        return 0;
+    if (__builtin_add_overflow(addr, len, &end_addr))
+        end_addr = UINT64_MAX;
+
+    snprintf(maps_path, sizeof(maps_path), "/proc/%d/maps", (int) pid);
+    fp = fopen(maps_path, "re");
+    if (!fp)
+        return -1;
+
+    while (fgets(line, sizeof(line), fp)) {
+        unsigned long long start, end, inode;
+        unsigned long long offset;
+        char perms[8];
+        char dev[32];
+
+        if (sscanf(line, "%llx-%llx %7s %llx %31s %llu", &start, &end, perms,
+                   &offset, dev, &inode) != 6)
+            continue;
+        (void) offset;
+        (void) dev;
+        if (inode == 0)
+            continue;
+        if (end <= addr || start >= end_addr)
+            continue;
+        if (strchr(perms, 's') == NULL || strchr(perms, 'w') == NULL)
+            continue;
+        fclose(fp);
+        return 1;
+    }
+
+    fclose(fp);
+    return 0;
+}
+
 void invalidate_translated_path_cache(struct kbox_supervisor_ctx *ctx)
 {
     size_t i;
@@ -2083,7 +2127,8 @@ static struct kbox_dispatch forward_write(
          * host side, so we write to stdout instead.
          */
         if (mirror_host && n > 0) {
-            (void) write(STDOUT_FILENO, scratch, n);
+            ssize_t written = write(STDOUT_FILENO, scratch, n);
+            (void) written;
         }
 
         total += n;

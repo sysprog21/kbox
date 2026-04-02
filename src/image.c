@@ -18,6 +18,7 @@
 #include <sys/resource.h>
 #include <unistd.h>
 
+#include "fd-table.h"
 #include "kbox/compiler.h"
 #include "kbox/elf.h"
 #include "kbox/identity.h"
@@ -452,7 +453,10 @@ static int prepare_userspace_launch(const struct kbox_image_args *args,
      * Fall back to zeros only if getrandom is unavailable.
      */
     memset(launch_random, 0, sizeof(launch_random));
-    (void) getrandom(launch_random, sizeof(launch_random), 0);
+    {
+        ssize_t n = getrandom(launch_random, sizeof(launch_random), 0);
+        (void) n;
+    }
 
     argv = build_loader_argv(command, args->extra_args, args->extra_argc);
     if (!argv)
@@ -605,6 +609,36 @@ static void init_launch_ctx(struct kbox_supervisor_ctx *ctx,
     ctx->web = web_ctx;
 }
 
+/* After the exec-range seccomp filter is installed, the success path must
+ * branch directly into guest code. ASAN/UBSAN runtimes and stack-protector
+ * epilogues may issue host syscalls from unregistered IPs, which the filter
+ * rejects with EPERM.
+ */
+__attribute__((no_stack_protector))
+#if KBOX_HAS_ASAN
+__attribute__((no_sanitize("address")))
+#endif
+__attribute__((no_sanitize("undefined"))) static int
+install_exec_filter_and_transfer(
+    int (*install_filter)(const struct kbox_host_nrs *h,
+                          const struct kbox_syscall_trap_ip_range *trap_ranges,
+                          size_t trap_range_count),
+    const struct kbox_host_nrs *host_nrs,
+    const struct kbox_syscall_trap_ip_range *ranges,
+    size_t range_count,
+    const struct kbox_loader_transfer_state *transfer)
+{
+    if (!install_filter || !host_nrs || !ranges || range_count == 0 ||
+        !transfer) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (install_filter(host_nrs, ranges, range_count) < 0)
+        return -1;
+
+    kbox_loader_transfer_to_guest(transfer);
+}
+
 static int run_trap_launch(const struct kbox_image_args *args,
                            const struct kbox_sysnrs *sysnrs,
                            struct kbox_loader_launch *launch,
@@ -619,6 +653,15 @@ static int run_trap_launch(const struct kbox_image_args *args,
 
     if (!host_nrs || !launch)
         return -1;
+#if defined(__x86_64__) && KBOX_HAS_ASAN
+    (void) sysnrs;
+    (void) web_ctx;
+    fprintf(stderr,
+            "kbox: trap mode is unsupported in x86_64 ASAN builds; "
+            "use --syscall-mode=seccomp or BUILD=release\n");
+    errno = ENOTSUP;
+    return -1;
+#endif
     if (collect_trap_exec_ranges(launch, ranges, KBOX_LOADER_MAX_MAPPINGS,
                                  &range_count) < 0) {
         fprintf(stderr,
@@ -659,14 +702,15 @@ static int run_trap_launch(const struct kbox_image_args *args,
             fprintf(stderr, "kbox: trap exec range[%zu]: %p-%p\n", ri,
                     (void *) ranges[ri].start, (void *) ranges[ri].end);
     }
-    if (kbox_install_seccomp_trap_ranges(host_nrs, ranges, range_count) < 0) {
+    if (install_exec_filter_and_transfer(kbox_install_seccomp_trap_ranges,
+                                         host_nrs, ranges, range_count,
+                                         &launch->transfer) < 0) {
         fprintf(stderr,
                 "kbox: trap launch failed: cannot install guest trap filter\n");
         kbox_syscall_trap_runtime_uninstall(&runtime);
         return -1;
     }
-
-    kbox_loader_transfer_to_guest(&launch->transfer);
+    __builtin_unreachable();
 }
 
 static int run_rewrite_launch(const struct kbox_image_args *args,
@@ -685,6 +729,13 @@ static int run_rewrite_launch(const struct kbox_image_args *args,
     if (!host_nrs || !launch)
         return -1;
 #if defined(__x86_64__)
+#if KBOX_HAS_ASAN
+    fprintf(stderr,
+            "kbox: rewrite mode is unsupported in x86_64 ASAN builds; "
+            "use --syscall-mode=seccomp or BUILD=release\n");
+    errno = ENOTSUP;
+    return -1;
+#endif
     if (args->verbose) {
         fprintf(
             stderr,
@@ -735,8 +786,9 @@ static int run_rewrite_launch(const struct kbox_image_args *args,
         return -1;
     }
 
-    if (kbox_install_seccomp_rewrite_ranges(host_nrs, ranges, range_count) <
-        0) {
+    if (install_exec_filter_and_transfer(kbox_install_seccomp_rewrite_ranges,
+                                         host_nrs, ranges, range_count,
+                                         &launch->transfer) < 0) {
         fprintf(
             stderr,
             "kbox: rewrite launch failed: cannot install guest trap filter\n");
@@ -744,8 +796,7 @@ static int run_rewrite_launch(const struct kbox_image_args *args,
         kbox_rewrite_runtime_reset(&rewrite_runtime);
         return -1;
     }
-
-    kbox_loader_transfer_to_guest(&launch->transfer);
+    __builtin_unreachable();
 }
 
 /* Public entry point. */

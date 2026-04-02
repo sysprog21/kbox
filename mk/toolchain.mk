@@ -27,6 +27,7 @@ endif
 CFLAGS  += -std=gnu11 -D_GNU_SOURCE -Wall -Wextra -Wpedantic -Wshadow
 CFLAGS  += -Wno-unused-parameter
 CFLAGS  += -Iinclude -Isrc
+LDFLAGS += -Wl,-z,noexecstack -Wl,-z,separate-code
 
 # Build mode from Kconfig (fallback to BUILD= for unconfigured builds)
 ifeq ($(CONFIG_BUILD_RELEASE),y)

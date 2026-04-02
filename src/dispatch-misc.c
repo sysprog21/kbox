@@ -600,8 +600,10 @@ static struct kbox_dispatch dispatch_iov_transfer(
                 goto done;
 
             if (is_write) {
-                if (mirror_host)
-                    (void) write(STDOUT_FILENO, scratch, n);
+                if (mirror_host) {
+                    ssize_t written = write(STDOUT_FILENO, scratch, n);
+                    (void) written;
+                }
             } else {
                 int wrc =
                     guest_mem_write(ctx, pid, base + seg_total, scratch, n);
