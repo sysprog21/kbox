@@ -125,6 +125,37 @@ expect_output_count()
     rm -f "$OUTPUT"
 }
 
+guest_has_test()
+{
+    test_prog="$1"
+    "$KBOX" image -S "$ROOTFS" -- /bin/sh -c "test -x /opt/tests/${test_prog}" \
+        2> /dev/null
+}
+
+require_guest_test()
+{
+    test_prog="$1"
+
+    if guest_has_test "$test_prog"; then
+        return 0
+    fi
+
+    printf "  %-40s ${RED}FAIL${NC} (missing from rootfs)\n" "$test_prog"
+    FAIL=$((FAIL + 1))
+    return 1
+}
+
+rewrite_mode_probe=$(mktemp)
+rewrite_mode_state="broken"
+if run_with_timeout "$KBOX" image -S "$ROOTFS" --syscall-mode=rewrite -- /bin/true \
+    > "$rewrite_mode_probe" 2>&1; then
+    rewrite_mode_state="available"
+elif grep -q "rewrite mode is unsupported in x86_64 ASAN builds" \
+    "$rewrite_mode_probe"; then
+    rewrite_mode_state="unsupported"
+fi
+rm -f "$rewrite_mode_probe"
+
 echo "=== kbox integration tests ==="
 echo "  binary:  ${KBOX}"
 echo "  rootfs:  ${ROOTFS}"
@@ -300,7 +331,7 @@ echo ""
 echo "--- Guest test programs ---"
 
 for test_prog in dup-test clock-test signal-test path-escape-test errno-test; do
-    if "$KBOX" image -S "$ROOTFS" -- /bin/sh -c "test -x /opt/tests/${test_prog}" 2> /dev/null; then
+    if guest_has_test "$test_prog"; then
         expect_success "$test_prog" \
             "$KBOX" image -S "$ROOTFS" -- "/opt/tests/${test_prog}"
     else
@@ -317,6 +348,31 @@ if "$KBOX" image -S "$ROOTFS" -- /bin/sh -c "test -x /opt/tests/clone3-test" 2> 
 else
     printf "  %-40s ${YELLOW}SKIP${NC} (not in rootfs)\n" "clone3-test"
     SKIP=$((SKIP + 1))
+fi
+
+echo ""
+echo "--- Rewrite security ---"
+
+if [ "$rewrite_mode_state" = "available" ]; then
+    if require_guest_test "jit-spray-test"; then
+        expect_output "jit-spray-test" "PASS: jit_spray_boundary" \
+            "$KBOX" image -S "$ROOTFS" --syscall-mode=rewrite \
+            -- "/opt/tests/jit-spray-test"
+    fi
+
+    if require_guest_test "jit-alias-test"; then
+        expect_output "jit-alias-test" "PASS: jit_alias_blocked" \
+            "$KBOX" image -S "$ROOTFS" --syscall-mode=rewrite \
+            -- "/opt/tests/jit-alias-test"
+    fi
+elif [ "$rewrite_mode_state" = "unsupported" ]; then
+    for t in jit-spray-test jit-alias-test; do
+        printf "  %-40s ${YELLOW}SKIP${NC} (x86_64 ASAN rewrite unsupported)\n" "$t"
+        SKIP=$((SKIP + 1))
+    done
+else
+    printf "  %-40s ${RED}FAIL${NC} (rewrite mode unavailable)\n" "rewrite-smoke"
+    FAIL=$((FAIL + 1))
 fi
 
 # ---- Networking (requires --net / SLIRP support) ----

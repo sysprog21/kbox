@@ -150,8 +150,8 @@ struct kbox_dispatch forward_mmap(const struct kbox_syscall_request *req,
 /* W^X enforcement for mprotect in trap/rewrite mode.
  *
  * Reject simultaneous PROT_WRITE|PROT_EXEC to prevent JIT spray attacks.
- * On none->X transitions, scan the page for syscall/sysenter/SVC instructions
- * and add them to the origin map for rewrite-mode caller validation.
+ * On writable->executable transitions in trap/rewrite mode, scan the promoted
+ * region and fail closed if it contains syscall instructions.
  *
  * In seccomp mode, this is a no-op: CONTINUE lets the host kernel handle it.
  */
@@ -199,17 +199,25 @@ struct kbox_dispatch forward_mprotect(const struct kbox_syscall_request *req,
                         kbox_syscall_request_pid(req));
             return kbox_dispatch_errno(EACCES);
         }
+        {
+            struct kbox_rewrite_runtime *runtime =
+                kbox_rewrite_runtime_active();
+
+            if (kbox_rewrite_runtime_promote_exec_region(runtime, addr, len) <
+                0) {
+                if (ctx->verbose)
+                    fprintf(stderr,
+                            "kbox: mprotect denied: scan-on-X failed at "
+                            "0x%llx len=%llu (pid=%u)\n",
+                            (unsigned long long) addr, (unsigned long long) len,
+                            kbox_syscall_request_pid(req));
+                return kbox_dispatch_errno(EACCES);
+            }
+        }
     }
 
-    /* Allow the mprotect to proceed via host kernel. If the page transitions
-     * to PROT_EXEC, JIT code on it will take the Tier 1 (RET_TRAP) slow path
-     * because it won't be in the BPF allow ranges. This is safe: un-rewritten
-     * syscall instructions in JIT pages are caught by the SIGSYS handler.
-     *
-     * Full scan-on-X (rewriting JIT pages at mprotect time) is a future
-     * optimization: it would promote JIT pages from Tier 1 (~3us) to Tier 2
-     * (~41ns) but requires synchronous instruction scanning while the page
-     * is still writable, which adds latency to the mprotect call.
+    /* Clean pages can proceed. Pages with runtime-emitted syscall sites are
+     * denied by scan-on-X above.
      */
     return kbox_dispatch_continue();
 }
