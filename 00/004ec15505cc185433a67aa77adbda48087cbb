@@ -1,0 +1,44 @@
+mk/tests.mk
+  06e2143d8a876297 9,34-35
+tests/unit/test-mount.c
+  06e2143d8a876297 1-103
+tests/unit/test-runner.c
+  06e2143d8a876297 94,124
+tests/unit/test-mount-stubs.c
+  06e2143d8a876297 1-74
+src/mount.c
+  06e2143d8a876297 13,17,22-24,127-132,134-204,213-215,217
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "00004ec15505cc185433a67aa77adbda48087cbb",
+  "prompts": {
+    "06e2143d8a876297": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4d16c60e-4b31-491d-b24b-7340a6459cc6",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang",
+      "messages": [],
+      "total_additions": 302,
+      "total_deletions": 37,
+      "accepted_lines": 270,
+      "overriden_lines": 0
+    },
+    "291c7d7896ef67ed": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8ef58edc-8a31-47ab-bb2d-8548939f3f04",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang",
+      "messages": [],
+      "total_additions": 17,
+      "total_deletions": 30,
+      "accepted_lines": 17,
+      "overriden_lines": 0
+    }
+  }
+}
