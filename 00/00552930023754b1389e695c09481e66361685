@@ -1,0 +1,53 @@
+docs/architecture.md
+  a6e68102502d08fb 1-63,67-69,71-248
+  948551e074fe5748 64-66,70
+README.md
+  948551e074fe5748 67,72,76-77,255
+  a6e68102502d08fb 22,70,74-75,99-100,133,214,216,239,266
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "0000552930023754b1389e695c09481e66361685",
+  "prompts": {
+    "06e2143d8a876297": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4d16c60e-4b31-491d-b24b-7340a6459cc6",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang",
+      "messages": [],
+      "total_additions": 13,
+      "total_deletions": 4,
+      "accepted_lines": 13,
+      "overriden_lines": 0
+    },
+    "948551e074fe5748": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d6901-172c-70f1-9942-59d5f8b52d6c",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Jim Huang",
+      "messages": [],
+      "total_additions": 17,
+      "total_deletions": 15,
+      "accepted_lines": 9,
+      "overriden_lines": 0
+    },
+    "a6e68102502d08fb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6a1d8972-70a1-4166-b2e5-1eb0d0df86f8",
+        "model": "<synthetic>"
+      },
+      "human_author": "Jim Huang",
+      "messages": [],
+      "total_additions": 299,
+      "total_deletions": 93,
+      "accepted_lines": 256,
+      "overriden_lines": 0
+    }
+  }
+}
