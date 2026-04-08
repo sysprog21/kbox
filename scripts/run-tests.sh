@@ -62,6 +62,29 @@ expect_success()
     rm -f "$OUTPUT"
 }
 
+expect_success_verbose()
+{
+    name="$1"
+    shift
+    printf "  %-40s \n" "$name"
+    OUTPUT=$(mktemp)
+    if run_with_timeout "$@" > "$OUTPUT" 2>&1; then
+        printf "    ${GREEN}PASS${NC}\n"
+        cat "$OUTPUT" | sed 's/^/      /'
+        PASS=$((PASS + 1))
+    else
+        rc=$?
+        if [ "$rc" -eq 124 ]; then
+            printf "    ${RED}TIMEOUT${NC}\n"
+        else
+            printf "    ${RED}FAIL${NC} (exit=$rc)\n"
+        fi
+        head -20 "$OUTPUT" | sed 's/^/      /'
+        FAIL=$((FAIL + 1))
+    fi
+    rm -f "$OUTPUT"
+}
+
 expect_output()
 {
     name="$1"
@@ -281,6 +304,59 @@ done
 echo ""
 echo "--- Networking ---"
 
+# Host-side HTTP server for the guest TCP test.
+# The guest connects to the SLIRP gateway (10.0.2.2) which maps to the host.
+HTTP_PORT=8080
+HTTP_PID=""
+
+start_http_server()
+{
+    if command -v python3 > /dev/null 2>&1; then
+        python3 -m http.server "$HTTP_PORT" > /dev/null 2>&1 &
+        HTTP_PID=$!
+        sleep 1
+    fi
+}
+
+stop_http_server()
+{
+    if [ -n "$HTTP_PID" ]; then
+        kill "$HTTP_PID" 2>/dev/null || true
+        wait "$HTTP_PID" 2>/dev/null || true
+        HTTP_PID=""
+    fi
+}
+
+IPERF3_PID=""
+NETSERVER_PID=""
+
+start_perf_servers()
+{
+    if command -v iperf3 > /dev/null 2>&1; then
+        iperf3 -s -p 5201 > /dev/null 2>&1 &
+        IPERF3_PID=$!
+    fi
+    if command -v netserver > /dev/null 2>&1; then
+        netserver -p 12865 > /dev/null 2>&1 &
+        NETSERVER_PID=$!
+    fi
+    sleep 1
+}
+
+stop_perf_servers()
+{
+    if [ -n "$IPERF3_PID" ]; then
+        kill "$IPERF3_PID" 2>/dev/null || true
+        wait "$IPERF3_PID" 2>/dev/null || true
+        IPERF3_PID=""
+    fi
+    if [ -n "$NETSERVER_PID" ]; then
+        kill "$NETSERVER_PID" 2>/dev/null || true
+        wait "$NETSERVER_PID" 2>/dev/null || true
+        NETSERVER_PID=""
+    fi
+}
+
 # Check if kbox was built with SLIRP support by testing --net flag.
 if "$KBOX" image -S "$ROOTFS" --net -- /bin/true 2> /dev/null; then
     for test_prog in net-dns-test; do
@@ -293,6 +369,53 @@ if "$KBOX" image -S "$ROOTFS" --net -- /bin/true 2> /dev/null; then
             SKIP=$((SKIP + 1))
         fi
     done
+
+    # TCP test: start host HTTP server, run guest test, then clean up.
+    start_http_server
+    if [ -n "$HTTP_PID" ]; then
+        if "$KBOX" image -S "$ROOTFS" --net -- /bin/sh -c "test -x /opt/tests/net-tcp-test" \
+            2> /dev/null; then
+            expect_success "net-tcp-test" \
+                "$KBOX" image -S "$ROOTFS" --net -- "/opt/tests/net-tcp-test"
+        else
+            printf "  %-40s ${YELLOW}SKIP${NC} (not in rootfs)\n" "net-tcp-test"
+            SKIP=$((SKIP + 1))
+        fi
+        stop_http_server
+    else
+        printf "  %-40s ${YELLOW}SKIP${NC} (python3 not found)\n" "net-tcp-test"
+        SKIP=$((SKIP + 1))
+    fi
+
+    # Perf tests: start host servers, run guest clients, then clean up.
+    start_perf_servers
+    if [ -n "$IPERF3_PID" ]; then
+        if "$KBOX" image -S "$ROOTFS" --net -- /bin/sh -c "test -x /usr/bin/iperf3" 2> /dev/null; then
+            expect_success_verbose "net-iperf3" \
+                "$KBOX" image -S "$ROOTFS" --net -- /usr/bin/iperf3 -c 10.0.2.2 -p 5201 -t 1
+        else
+            printf "  %-40s ${YELLOW}SKIP${NC} (not in rootfs)\n" "net-iperf3"
+            SKIP=$((SKIP + 1))
+        fi
+    else
+        printf "  %-40s ${YELLOW}SKIP${NC} (host iperf3 not found)\n" "net-iperf3"
+        SKIP=$((SKIP + 1))
+    fi
+
+    if [ -n "$NETSERVER_PID" ]; then
+        if "$KBOX" image -S "$ROOTFS" --net -- /bin/sh -c "test -x /usr/bin/netperf" 2> /dev/null; then
+            # -l 1 runs the test for 1 second instead of the default 10 seconds.
+            expect_success_verbose "net-netperf-tcp-rr" \
+                "$KBOX" image -S "$ROOTFS" --net -- /usr/bin/netperf -H 10.0.2.2 -p 12865 -t TCP_RR -l 1
+        else
+            printf "  %-40s ${YELLOW}SKIP${NC} (not in rootfs)\n" "net-netperf"
+            SKIP=$((SKIP + 1))
+        fi
+    else
+        printf "  %-40s ${YELLOW}SKIP${NC} (host netserver not found)\n" "net-netperf"
+        SKIP=$((SKIP + 1))
+    fi
+    stop_perf_servers
 
     expect_output "net-ping-gateway" "bytes from" \
         "$KBOX" image -S "$ROOTFS" --net -- /bin/sh -c "ping -c 1 -W 3 10.0.2.2"
@@ -307,7 +430,7 @@ if "$KBOX" image -S "$ROOTFS" --net -- /bin/true 2> /dev/null; then
     expect_output "net-wget-external" "Connecting to" \
         "$KBOX" image -S "$ROOTFS" --net -- /bin/sh -c "wget -S -O /dev/null http://www.google.com/ 2>&1 || true"
 else
-    for t in net-dns-test net-ping-gateway net-resolv-conf net-wget-external; do
+    for t in net-dns-test net-tcp-test net-iperf3 net-netperf net-ping-gateway net-resolv-conf net-wget-external; do
         printf "  %-40s ${YELLOW}SKIP${NC} (no SLIRP support)\n" "$t"
         SKIP=$((SKIP + 1))
     done
