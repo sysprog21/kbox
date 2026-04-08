@@ -1,0 +1,77 @@
+docs/cancel-wrapper.md
+  b9dc25d028df11d7 76-77,79-137
+src/rewrite.c
+  b9dc25d028df11d7 3277-3281
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.5",
+  "base_commit_sha": "0000d7bed56cedc0baa3d3cd4ec36c39e9907975",
+  "prompts": {
+    "06e2143d8a876297": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4d16c60e-4b31-491d-b24b-7340a6459cc6",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 13,
+      "overriden_lines": 0
+    },
+    "4cac2ab3420957ce": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a64c5ff2-ec99-4b1a-b6dd-51a30a2e4730",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 55,
+      "overriden_lines": 0
+    },
+    "978858a0cd5c7fbb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "19f6d9f7-2927-493d-bfb6-d9466a4a9566",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 178,
+      "overriden_lines": 0
+    },
+    "b9dc25d028df11d7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "925ad16c-a2ad-4c9e-a351-884e365e4c9b",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang",
+      "messages": [],
+      "total_additions": 66,
+      "total_deletions": 26,
+      "accepted_lines": 66,
+      "overriden_lines": 0
+    },
+    "bfe5dbea2a14cfcc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019d692f-b0f4-7451-b3fd-416a61f1b4a3",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Jim Huang",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 264,
+      "overriden_lines": 0
+    }
+  }
+}
