@@ -267,7 +267,7 @@ with
 
 - x86_64
 - aarch64
-- riscv64
+- riscv64 (Only the trap mode and the seccomp mode are available)
 
 ## License
 
