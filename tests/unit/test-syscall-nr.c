@@ -72,15 +72,15 @@ static void test_host_x86_64_sendmsg(void)
 
 static void test_host_aarch64_gettimeofday(void)
 {
-    ASSERT_EQ(HOST_NRS_AARCH64.gettimeofday, 169);
+    ASSERT_EQ(HOST_NRS_GENERIC.gettimeofday, 169);
 }
 
 static void test_host_aarch64_no_open(void)
 {
     /* aarch64 has no legacy open syscall */
-    ASSERT_EQ(HOST_NRS_AARCH64.open, -1);
-    ASSERT_EQ(HOST_NRS_AARCH64.stat, -1);
-    ASSERT_EQ(HOST_NRS_AARCH64.lstat, -1);
+    ASSERT_EQ(HOST_NRS_GENERIC.open, -1);
+    ASSERT_EQ(HOST_NRS_GENERIC.stat, -1);
+    ASSERT_EQ(HOST_NRS_GENERIC.lstat, -1);
 }
 
 static void test_at_fdcwd(void)

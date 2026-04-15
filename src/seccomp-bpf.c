@@ -142,7 +142,7 @@ static const int deny_nrs[] = {
     153, /* vhangup */
 };
 
-#elif defined(__aarch64__)
+#elif defined(__aarch64__) || (defined(__riscv) && __riscv_xlen == 64)
 static const int deny_nrs[] = {
     /* Seccomp manipulation */
     277, /* seccomp */

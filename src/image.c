@@ -490,8 +490,8 @@ static const struct kbox_host_nrs *select_host_nrs(void)
 {
 #if defined(__x86_64__)
     return &HOST_NRS_X86_64;
-#elif defined(__aarch64__)
-    return &HOST_NRS_AARCH64;
+#elif defined(__aarch64__) || (defined(__riscv) && (__riscv_xlen == 64))
+    return &HOST_NRS_GENERIC;
 #else
     return NULL;
 #endif

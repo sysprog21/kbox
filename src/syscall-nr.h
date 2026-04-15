@@ -220,7 +220,7 @@ struct kbox_host_nrs {
 };
 
 extern const struct kbox_host_nrs HOST_NRS_X86_64;
-extern const struct kbox_host_nrs HOST_NRS_AARCH64;
+extern const struct kbox_host_nrs HOST_NRS_GENERIC;
 
 const struct kbox_sysnrs *detect_sysnrs(void);
 const char *syscall_name_from_nr(const struct kbox_host_nrs *h, int nr);

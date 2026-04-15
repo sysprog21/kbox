@@ -29,6 +29,11 @@ CFLAGS  += -Wno-unused-parameter
 CFLAGS  += -Iinclude -Isrc
 LDFLAGS += -Wl,-z,noexecstack -Wl,-z,separate-code
 
+# Disable link relaxation of riscv64 architecture to prevent long link time
+ifeq ($(ARCH),riscv64)
+	LDFLAGS += -Wl,--no-relax
+endif
+
 # Build mode from Kconfig (fallback to BUILD= for unconfigured builds)
 ifeq ($(CONFIG_BUILD_RELEASE),y)
   CFLAGS  += -O2 -DNDEBUG

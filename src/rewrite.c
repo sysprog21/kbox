@@ -608,10 +608,10 @@ static int encode_aarch64_virtual_procinfo_patch(
     if (aarch64_prev_insn_syscall_nr(image, image_len, site_off, &nr) < 0)
         return -1;
 
-    if (nr == (uint32_t) HOST_NRS_AARCH64.getpid ||
-        nr == (uint32_t) HOST_NRS_AARCH64.gettid) {
+    if (nr == (uint32_t) HOST_NRS_GENERIC.getpid ||
+        nr == (uint32_t) HOST_NRS_GENERIC.gettid) {
         value = 1;
-    } else if (nr == (uint32_t) HOST_NRS_AARCH64.getppid) {
+    } else if (nr == (uint32_t) HOST_NRS_GENERIC.getppid) {
         value = 0;
     } else {
         return -1;

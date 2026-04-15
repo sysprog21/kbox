@@ -33,28 +33,28 @@
 #ifndef __NR_pidfd_open
 #if defined(__x86_64__)
 #define __NR_pidfd_open 434
-#elif defined(__aarch64__)
+#elif defined(__aarch64__) || (defined(__riscv) && (__riscv_xlen == 64))
 #define __NR_pidfd_open 434
 #endif
 #endif
 #ifndef __NR_pidfd_getfd
 #if defined(__x86_64__)
 #define __NR_pidfd_getfd 438
-#elif defined(__aarch64__)
+#elif defined(__aarch64__) || (defined(__riscv) && (__riscv_xlen == 64))
 #define __NR_pidfd_getfd 438
 #endif
 #endif
 #ifndef __NR_faccessat2
 #if defined(__x86_64__)
 #define __NR_faccessat2 439
-#elif defined(__aarch64__)
+#elif defined(__aarch64__) || (defined(__riscv) && (__riscv_xlen == 64))
 #define __NR_faccessat2 439
 #endif
 #endif
 #ifndef __NR_statx
 #if defined(__x86_64__)
 #define __NR_statx 332
-#elif defined(__aarch64__)
+#elif defined(__aarch64__) || (defined(__riscv) && (__riscv_xlen == 64))
 #define __NR_statx 291
 #endif
 #endif

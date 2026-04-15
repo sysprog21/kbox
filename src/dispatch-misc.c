@@ -239,6 +239,8 @@ struct kbox_dispatch forward_uname(const struct kbox_syscall_request *req,
     snprintf(uts.machine, sizeof(uts.machine), "x86_64");
 #elif defined(__aarch64__)
     snprintf(uts.machine, sizeof(uts.machine), "aarch64");
+#elif (defined(__riscv) && __riscv_xlen == 64)
+    snprintf(uts.machine, sizeof(uts.machine), "riscv64");
 #else
     snprintf(uts.machine, sizeof(uts.machine), "unknown");
 #endif

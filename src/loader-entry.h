@@ -9,6 +9,7 @@
 enum kbox_loader_entry_arch {
     KBOX_LOADER_ENTRY_ARCH_X86_64,
     KBOX_LOADER_ENTRY_ARCH_AARCH64,
+    KBOX_LOADER_ENTRY_ARCH_RISCV64
 };
 
 struct kbox_loader_entry_state {

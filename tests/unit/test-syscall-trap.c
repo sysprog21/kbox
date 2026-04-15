@@ -91,7 +91,8 @@ static void test_host_syscall_range_contains_ip(void)
     struct kbox_syscall_trap_ip_range range;
     uintptr_t ip = kbox_syscall_trap_host_syscall_ip();
 
-#if defined(__x86_64__) || defined(__aarch64__)
+#if defined(__x86_64__) || defined(__aarch64__) || \
+    (defined(__riscv) && (__riscv_xlen == 64))
     ASSERT_EQ(kbox_syscall_trap_host_syscall_range(&range), 0);
     ASSERT_TRUE(range.start < range.end);
     ASSERT_TRUE(ip >= range.start);
@@ -150,6 +151,30 @@ static void test_sigsys_decode_aarch64_registers(void)
     ASSERT_EQ(regs.args[0], 101);
     ASSERT_EQ(regs.args[5], 606);
 }
+#elif defined(__riscv) && (__riscv_xlen == 64)
+static void test_sigsys_decode_riscv64_registers(void)
+{
+    siginfo_t info;
+    ucontext_t uc;
+    struct kbox_syscall_regs regs;
+
+    memset(&uc, 0, sizeof(uc));
+    init_sigsys(&info, 56);
+    uc.uc_mcontext.__gregs[0] = 0x4000;
+    uc.uc_mcontext.__gregs[10] = 101;
+    uc.uc_mcontext.__gregs[11] = 202;
+    uc.uc_mcontext.__gregs[12] = 303;
+    uc.uc_mcontext.__gregs[13] = 404;
+    uc.uc_mcontext.__gregs[14] = 505;
+    uc.uc_mcontext.__gregs[15] = 606;
+    uc.uc_mcontext.__gregs[16] = 999;
+
+    ASSERT_EQ(kbox_syscall_regs_from_sigsys(&info, &uc, &regs), 0);
+    ASSERT_EQ(regs.nr, 56);
+    ASSERT_EQ(regs.instruction_pointer, 0x4000);
+    ASSERT_EQ(regs.args[0], 101);
+    ASSERT_EQ(regs.args[5], 606);
+}
 #endif
 
 static void test_sigsys_request_builder_uses_trap_source(void)
@@ -174,6 +199,11 @@ static void test_sigsys_request_builder_uses_trap_source(void)
     uc.uc_mcontext.pc = 0x5000;
     uc.uc_mcontext.regs[0] = 7;
     expected_rc = 0;
+#elif defined(__riscv) && (__riscv_xlen == 64)
+    init_sigsys(&info, 93);
+    uc.uc_mcontext.__gregs[0] = 0x5000;
+    uc.uc_mcontext.__gregs[10] = 7;
+    expected_rc = 0;
 #else
     memset(&info, 0, sizeof(info));
     info.si_signo = SIGSYS;
@@ -182,7 +212,8 @@ static void test_sigsys_request_builder_uses_trap_source(void)
     ASSERT_EQ(
         kbox_syscall_request_from_sigsys(&req, 777, &info, &uc, &guest_mem),
         expected_rc);
-#if defined(__x86_64__) || defined(__aarch64__)
+#if defined(__x86_64__) || defined(__aarch64__) || \
+    (defined(__riscv) && (__riscv_xlen == 64))
     ASSERT_EQ(req.source, KBOX_SYSCALL_SOURCE_TRAP);
     ASSERT_EQ(req.pid, 777);
     ASSERT_EQ(req.cookie, 0);
@@ -209,6 +240,10 @@ static void test_sigsys_request_builder_defaults_current_guest_mem(void)
     init_sigsys(&info, 172);
     uc.uc_mcontext.pc = 0x6000;
     expected_rc = 0;
+#elif defined(__riscv) && (__riscv_xlen == 64)
+    init_sigsys(&info, 172);
+    uc.uc_mcontext.__gregs[0] = 0x6000;
+    expected_rc = 0;
 #else
     memset(&info, 0, sizeof(info));
     info.si_signo = SIGSYS;
@@ -216,7 +251,8 @@ static void test_sigsys_request_builder_defaults_current_guest_mem(void)
 
     ASSERT_EQ(kbox_syscall_request_from_sigsys(&req, 123, &info, &uc, NULL),
               expected_rc);
-#if defined(__x86_64__) || defined(__aarch64__)
+#if defined(__x86_64__) || defined(__aarch64__) || \
+    (defined(__riscv) && (__riscv_xlen == 64))
     ASSERT_EQ(req.guest_mem.ops, &kbox_current_guest_mem_ops);
     ASSERT_EQ(req.guest_mem.opaque, 0);
 #endif
@@ -233,7 +269,8 @@ static void test_sigsys_result_writer(void)
     dispatch.val = 1234;
     dispatch.error = 0;
 
-#if defined(__x86_64__) || defined(__aarch64__)
+#if defined(__x86_64__) || defined(__aarch64__) || \
+    (defined(__riscv) && (__riscv_xlen == 64))
     expected_rc = 0;
 #endif
     ASSERT_EQ(kbox_syscall_result_to_sigsys(&uc, &dispatch), expected_rc);
@@ -241,6 +278,8 @@ static void test_sigsys_result_writer(void)
     ASSERT_EQ(uc.uc_mcontext.gregs[REG_RAX], 1234);
 #elif defined(__aarch64__)
     ASSERT_EQ(uc.uc_mcontext.regs[0], 1234);
+#elif defined(__riscv) && (__riscv_xlen == 64)
+    ASSERT_EQ(uc.uc_mcontext.__gregs[10], 1234);
 #endif
 }
 
@@ -259,7 +298,10 @@ static void test_sigsys_continue_executes_host_syscall(void)
     uc.uc_mcontext.gregs[REG_RAX] = HOST_NRS_X86_64.getpid;
     expected_rc = 0;
 #elif defined(__aarch64__)
-    uc.uc_mcontext.regs[8] = HOST_NRS_AARCH64.getpid;
+    uc.uc_mcontext.regs[8] = HOST_NRS_GENERIC.getpid;
+    expected_rc = 0;
+#elif defined(__riscv) && (__riscv_xlen == 64)
+    uc.uc_mcontext.__gregs[17] = HOST_NRS_GENERIC.getpid;
     expected_rc = 0;
 #endif
 
@@ -268,6 +310,8 @@ static void test_sigsys_continue_executes_host_syscall(void)
     ASSERT_EQ(uc.uc_mcontext.gregs[REG_RAX], getpid());
 #elif defined(__aarch64__)
     ASSERT_EQ(uc.uc_mcontext.regs[0], (uint64_t) getpid());
+#elif defined(__riscv) && (__riscv_xlen == 64)
+    ASSERT_EQ(uc.uc_mcontext.__gregs[10], (uint64_t) getpid());
 #endif
 }
 
@@ -279,8 +323,8 @@ static void test_sigsys_runtime_install_uninstall(void)
     memset(&ctx, 0, sizeof(ctx));
 #if defined(__x86_64__)
     ctx.host_nrs = &HOST_NRS_X86_64;
-#elif defined(__aarch64__)
-    ctx.host_nrs = &HOST_NRS_AARCH64;
+#elif defined(__aarch64__) || (defined(__riscv) && (__riscv_xlen == 64))
+    ctx.host_nrs = &HOST_NRS_GENERIC;
 #endif
 
     ASSERT_EQ(kbox_syscall_trap_runtime_install(&runtime, &ctx), 0);
@@ -301,11 +345,14 @@ static void test_sigsys_runtime_install_preserves_sqpoll(void)
 #if defined(__x86_64__)
     ctx.host_nrs = &HOST_NRS_X86_64;
 #elif defined(__aarch64__)
-    ctx.host_nrs = &HOST_NRS_AARCH64;
+    ctx.host_nrs = &HOST_NRS_GENERIC;
+#elif defined(__riscv) && (__riscv_xlen == 64)
+    ctx.host_nrs = &HOST_NRS_GENERIC;
 #endif
     runtime.sqpoll = 1;
 
-#if defined(__x86_64__) || defined(__aarch64__)
+#if defined(__x86_64__) || defined(__aarch64__) || \
+    (defined(__riscv) && (__riscv_xlen == 64))
     ASSERT_EQ(kbox_syscall_trap_runtime_install(&runtime, &ctx), 0);
     ASSERT_EQ(runtime.sqpoll, 1);
     kbox_syscall_trap_runtime_uninstall(&runtime);
@@ -336,6 +383,10 @@ static void test_sigsys_trap_handle_uses_runtime_executor(void)
     init_sigsys(&info, 172);
     uc.uc_mcontext.pc = 0x7100;
     expected_rc = 0;
+#elif defined(__riscv) && (__riscv_xlen == 64)
+    init_sigsys(&info, 172);
+    uc.uc_mcontext.__gregs[0] = 0x7100;
+    expected_rc = 0;
 #else
     memset(&info, 0, sizeof(info));
     info.si_signo = SIGSYS;
@@ -348,6 +399,8 @@ static void test_sigsys_trap_handle_uses_runtime_executor(void)
     ASSERT_EQ(uc.uc_mcontext.gregs[REG_RAX], info.si_syscall + 10);
 #elif defined(__aarch64__)
     ASSERT_EQ(uc.uc_mcontext.regs[0], (uint64_t) info.si_syscall + 10);
+#elif defined(__riscv) && (__riscv_xlen == 64)
+    ASSERT_EQ(uc.uc_mcontext.__gregs[10], (uint64_t) info.si_syscall + 10);
 #endif
     ASSERT_EQ(custom_execute_calls, 1);
     ASSERT_EQ(custom_execute_last_nr, info.si_syscall);
@@ -372,9 +425,14 @@ static void test_sigsys_dispatch_helper(void)
     uc.uc_mcontext.gregs[REG_RIP] = 0x7000;
     expected_rc = 0;
 #elif defined(__aarch64__)
-    ctx.host_nrs = &HOST_NRS_AARCH64;
+    ctx.host_nrs = &HOST_NRS_GENERIC;
     init_sigsys(&info, 172);
     uc.uc_mcontext.pc = 0x7000;
+    expected_rc = 0;
+#elif defined(__riscv) && (__riscv_xlen == 64)
+    ctx.host_nrs = &HOST_NRS_GENERIC;
+    init_sigsys(&info, 172);
+    uc.uc_mcontext.__gregs[0] = 0x7000;
     expected_rc = 0;
 #else
     memset(&info, 0, sizeof(info));
@@ -406,9 +464,14 @@ static void test_trap_runtime_capture_and_dispatch_pending(void)
     uc.uc_mcontext.gregs[REG_RIP] = 0x7200;
     expected_rc = 0;
 #elif defined(__aarch64__)
-    ctx.host_nrs = &HOST_NRS_AARCH64;
+    ctx.host_nrs = &HOST_NRS_GENERIC;
     init_sigsys(&info, 172);
     uc.uc_mcontext.pc = 0x7200;
+    expected_rc = 0;
+#elif defined(__riscv) && (__riscv_xlen == 64)
+    ctx.host_nrs = &HOST_NRS_GENERIC;
+    init_sigsys(&info, 172);
+    uc.uc_mcontext.__gregs[0] = 0x7200;
     expected_rc = 0;
 #else
     memset(&info, 0, sizeof(info));
@@ -466,8 +529,8 @@ static void test_trap_runtime_service_thread_dispatches(void)
     int i;
 
     memset(&ctx, 0, sizeof(ctx));
-#if defined(__aarch64__)
-    ctx.host_nrs = &HOST_NRS_AARCH64;
+#if defined(__aarch64__) || (defined(__riscv) && (__riscv_xlen == 64))
+    ctx.host_nrs = &HOST_NRS_GENERIC;
 #else
     ctx.host_nrs = &HOST_NRS_X86_64;
 #endif
@@ -504,12 +567,13 @@ static void test_trap_active_dispatch_uses_service_thread(void)
     memset(&req, 0, sizeof(req));
 #if defined(__x86_64__)
     ctx.host_nrs = &HOST_NRS_X86_64;
-#elif defined(__aarch64__)
-    ctx.host_nrs = &HOST_NRS_AARCH64;
+#elif defined(__aarch64__) || (defined(__riscv) && (__riscv_xlen == 64))
+    ctx.host_nrs = &HOST_NRS_GENERIC;
 #endif
     req.nr = 88;
 
-#if defined(__x86_64__) || defined(__aarch64__)
+#if defined(__x86_64__) || defined(__aarch64__) || \
+    (defined(__riscv) && (__riscv_xlen == 64))
     ASSERT_EQ(kbox_syscall_trap_runtime_install(&runtime, &ctx), 0);
     ASSERT_EQ(kbox_syscall_trap_active_pid(), runtime.pid);
     ASSERT_EQ(kbox_syscall_trap_active_dispatch(&req, &dispatch), 0);
@@ -532,12 +596,13 @@ static void test_trap_active_dispatch_fails_cleanly_during_sqpoll_stop(void)
     memset(&req, 0, sizeof(req));
 #if defined(__x86_64__)
     ctx.host_nrs = &HOST_NRS_X86_64;
-#elif defined(__aarch64__)
-    ctx.host_nrs = &HOST_NRS_AARCH64;
+#elif defined(__aarch64__) || (defined(__riscv) && (__riscv_xlen == 64))
+    ctx.host_nrs = &HOST_NRS_GENERIC;
 #endif
     req.nr = 99;
 
-#if defined(__x86_64__) || defined(__aarch64__)
+#if defined(__x86_64__) || defined(__aarch64__) || \
+    (defined(__riscv) && (__riscv_xlen == 64))
     ASSERT_EQ(kbox_syscall_trap_runtime_install(&runtime, &ctx), 0);
     runtime.sqpoll = 1;
     __atomic_store_n(&runtime.service_stop, 1, __ATOMIC_RELEASE);
@@ -557,6 +622,8 @@ void test_syscall_trap_init(void)
     TEST_REGISTER(test_sigsys_decode_x86_64_registers);
 #elif defined(__aarch64__)
     TEST_REGISTER(test_sigsys_decode_aarch64_registers);
+#elif defined(__riscv) && (__riscv_xlen == 64)
+    TEST_REGISTER(test_sigsys_decode_riscv64_registers);
 #endif
     TEST_REGISTER(test_sigsys_request_builder_uses_trap_source);
     TEST_REGISTER(test_sigsys_request_builder_defaults_current_guest_mem);

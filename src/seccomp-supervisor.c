@@ -482,8 +482,8 @@ int kbox_run_supervisor(const struct kbox_sysnrs *sysnrs,
     /* Architecture-specific host syscall numbers for the BPF filter. */
 #if defined(__x86_64__)
     const struct kbox_host_nrs *host_nrs = &HOST_NRS_X86_64;
-#elif defined(__aarch64__)
-    const struct kbox_host_nrs *host_nrs = &HOST_NRS_AARCH64;
+#elif defined(__aarch64__) || (defined(__riscv) && __riscv_xlen == 64)
+    const struct kbox_host_nrs *host_nrs = &HOST_NRS_GENERIC;
 #else
 #error "Unsupported architecture"
 #endif

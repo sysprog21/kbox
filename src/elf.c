@@ -417,7 +417,7 @@ int kbox_build_elf_load_plan(const unsigned char *buf,
         p_memsz = read_le64(buf + off + P_MEMSZ_OFF);
         p_align = read_le64(buf + off + P_ALIGN_OFF);
 
-        if (p_filesz > p_memsz)
+        if (p_memsz && p_filesz > p_memsz)
             return -1;
 
         /* Validate that p_offset + p_filesz does not overflow.  We do

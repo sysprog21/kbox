@@ -174,6 +174,8 @@ host-kernel calls. `mmap` and `epoll_*` are deliberately excluded
 because they need W^X enforcement, shadow validation, or FD-table
 gating that the fast-path cannot perform.
 
+On **riscv64**, the rewrite mode is not available now.
+
 Each site is classified as WRAPPER (simple `syscall; ret` pattern,
 eligible for inline virtualized return: getpid=1, gettid=1, getppid=0)
 or COMPLEX (result consumed internally by helpers like `raise()` that
