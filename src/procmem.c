@@ -76,11 +76,13 @@ static void restore_default_and_reraise(int sig)
 
 static int action_uses_fault_handler(const struct sigaction *sa)
 {
+    const void *fault_handler_ptr = (const void *) (uintptr_t) &fault_handler;
+
     if (!sa)
         return 0;
     if ((sa->sa_flags & SA_SIGINFO) != 0)
         return sa->sa_sigaction == fault_handler;
-    return sa->sa_handler == (void (*)(int)) fault_handler;
+    return (const void *) (uintptr_t) sa->sa_handler == fault_handler_ptr;
 }
 
 static void fault_handler(int sig, siginfo_t *info, void *ucontext)
@@ -337,14 +339,18 @@ int kbox_vm_read_string(pid_t pid,
 
         local_iov.iov_base = buf + total;
         local_iov.iov_len = chunk;
-        remote_iov.iov_base =
-            (void *) (uintptr_t) (remote_addr + (uint64_t) total);
+        uint64_t remote;
+        if (__builtin_add_overflow(remote_addr, (uint64_t) total, &remote))
+            return -EFAULT;
+        remote_iov.iov_base = (void *) (uintptr_t) remote;
         remote_iov.iov_len = chunk;
 
         n = syscall(SYS_process_vm_readv, pid, &local_iov, 1, &remote_iov, 1,
                     0);
-        if (n <= 0)
-            return errno ? -errno : -EIO;
+        if (n < 0)
+            return -errno;
+        if (n == 0)
+            return -EFAULT;
 
         for (i = 0; i < (size_t) n; i++) {
             if (buf[total + i] == '\0')

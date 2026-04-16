@@ -84,39 +84,41 @@ fi
 
 # ---- Configure -----------------------------------------------------------
 
-echo "  CONFIG  ARCH=lkl defconfig"
-make -C "${LKL_SRC}" ARCH=lkl defconfig
+if [ ! -f "${LKL_SRC}/.config" ]; then
+    echo "  CONFIG  ARCH=lkl defconfig"
+    make -C "${LKL_SRC}" ARCH=lkl defconfig
 
-# Enable features required by kbox (mirrors build-lkl.yml).
-for opt in \
-    CONFIG_DEVTMPFS \
-    CONFIG_DEVTMPFS_MOUNT \
-    CONFIG_DEVPTS_FS \
-    CONFIG_DEBUG_INFO \
-    CONFIG_GDB_SCRIPTS \
-    CONFIG_SCHED_DEBUG \
-    CONFIG_PROC_SYSCTL \
-    CONFIG_PRINTK \
-    CONFIG_TRACEPOINTS \
-    CONFIG_FTRACE \
-    CONFIG_DEBUG_FS; do
-    "${LKL_SRC}/scripts/config" --file "${LKL_SRC}/.config" --enable "${opt}"
-done
+    # Enable features required by kbox (mirrors build-lkl.yml).
+    for opt in \
+        CONFIG_DEVTMPFS \
+        CONFIG_DEVTMPFS_MOUNT \
+        CONFIG_DEVPTS_FS \
+        CONFIG_DEBUG_INFO \
+        CONFIG_GDB_SCRIPTS \
+        CONFIG_SCHED_DEBUG \
+        CONFIG_PROC_SYSCTL \
+        CONFIG_PRINTK \
+        CONFIG_TRACEPOINTS \
+        CONFIG_FTRACE \
+        CONFIG_DEBUG_FS; do
+        "${LKL_SRC}/scripts/config" --file "${LKL_SRC}/.config" --enable "${opt}"
+    done
 
-"${LKL_SRC}/scripts/config" --file "${LKL_SRC}/.config" \
-    --set-val CONFIG_DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT y
+    "${LKL_SRC}/scripts/config" --file "${LKL_SRC}/.config" \
+        --set-val CONFIG_DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT y
 
-for opt in \
-    CONFIG_MODULES \
-    CONFIG_SOUND \
-    CONFIG_USB_SUPPORT \
-    CONFIG_INPUT \
-    CONFIG_NFS_FS \
-    CONFIG_CIFS; do
-    "${LKL_SRC}/scripts/config" --file "${LKL_SRC}/.config" --disable "${opt}"
-done
+    for opt in \
+        CONFIG_MODULES \
+        CONFIG_SOUND \
+        CONFIG_USB_SUPPORT \
+        CONFIG_INPUT \
+        CONFIG_NFS_FS \
+        CONFIG_CIFS; do
+        "${LKL_SRC}/scripts/config" --file "${LKL_SRC}/.config" --disable "${opt}"
+    done
 
-make -C "${LKL_SRC}" ARCH=lkl olddefconfig
+    make -C "${LKL_SRC}" ARCH=lkl olddefconfig
+fi
 
 # ---- Build ---------------------------------------------------------------
 

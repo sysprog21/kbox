@@ -99,6 +99,7 @@ struct kbox_supervisor_ctx {
     int listener_fd;
     int proc_self_fd_dirfd;
     int proc_mem_fd;
+    int inherited_fds_tracked;
     pid_t child_pid;
     const char *host_root;
     int verbose;

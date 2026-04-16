@@ -11,10 +11,6 @@
 #define KBOX_MAX_BIND_MOUNTS 32
 #define KBOX_MAX_MOUNT_OPTS 16
 
-enum kbox_mode {
-    KBOX_MODE_IMAGE,
-};
-
 enum kbox_syscall_mode {
     KBOX_SYSCALL_MODE_SECCOMP,
     KBOX_SYSCALL_MODE_TRAP,
@@ -51,17 +47,10 @@ struct kbox_image_args {
     int extra_argc;                /* count of extra_args */
 };
 
-struct kbox_args {
-    enum kbox_mode mode;
-    union {
-        struct kbox_image_args image;
-    };
-};
-
 /* Parse command-line arguments.
  * Returns 0 on success, -1 on error (message printed to stderr).
  */
-int kbox_parse_args(int argc, char *argv[], struct kbox_args *out);
+int kbox_parse_args(int argc, char *argv[], struct kbox_image_args *out);
 
 /* Print usage to stderr. */
 void kbox_usage(const char *argv0);

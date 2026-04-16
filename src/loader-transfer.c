@@ -37,16 +37,16 @@ int kbox_loader_prepare_transfer(const struct kbox_loader_handoff *handoff,
     return 0;
 }
 
-/* Suppress ASAN: this function switches to the guest stack and jumps to
- * guest code.  ASAN's stack tracking doesn't know about the guest stack
- * and would flag every subsequent stack access as a buffer overflow.
+/* The transfer boundary must not run sanitizer/runtime callbacks or stack
+ * protector epilogues. It switches to the guest stack and branches into
+ * guest code after the exec-range seccomp filter is active.
  */
-__attribute__((noreturn))
+__attribute__((noreturn)) __attribute__((no_stack_protector))
 #if KBOX_HAS_ASAN
 __attribute__((no_sanitize("address")))
 #endif
-void kbox_loader_transfer_to_guest(
-    const struct kbox_loader_transfer_state *state)
+__attribute__((no_sanitize("undefined"))) void
+kbox_loader_transfer_to_guest(const struct kbox_loader_transfer_state *state)
 {
     if (!state)
         __builtin_trap();
@@ -88,6 +88,24 @@ void kbox_loader_transfer_to_guest(
         :
         : "r"(sp), "r"(x0), "r"(x1), "r"(x2), "r"(x3), "r"(x4), "r"(x5),
           "r"(x16)
+        : "memory");
+#elif defined(__riscv) && (__riscv_xlen == 64)
+    if (state->arch != KBOX_LOADER_ENTRY_ARCH_RISCV64)
+        __builtin_trap();
+    register uint64_t a0 __asm__("a0") = state->regs[0];
+    register uint64_t a1 __asm__("a1") = state->regs[1];
+    register uint64_t a2 __asm__("a2") = state->regs[2];
+    register uint64_t a3 __asm__("a3") = state->regs[3];
+    register uint64_t a4 __asm__("a4") = state->regs[4];
+    register uint64_t a5 __asm__("a5") = state->regs[5];
+    register uint64_t t0 __asm__("t0") = state->pc;
+    uint64_t sp = state->sp;
+
+    __asm__ volatile(
+        "mv sp, %0\n\t"
+        "jr t0\n\t"
+        :
+        : "r"(sp), "r"(a0), "r"(a1), "r"(a2), "r"(a3), "r"(a4), "r"(a5), "r"(t0)
         : "memory");
 #else
     (void) state;

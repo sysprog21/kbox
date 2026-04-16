@@ -176,21 +176,25 @@ int kbox_find_elf_interp_loc(const unsigned char *buf,
         if (p_offset >= buf_len)
             return -1;
 
+        /* Reject if PT_INTERP segment extends beyond the mapped ELF. */
         uint64_t end;
         if (__builtin_add_overflow(p_offset, p_filesz, &end) || end > buf_len)
-            end = buf_len;
+            return -1;
 
         const unsigned char *s = buf + p_offset;
-        size_t slen = (size_t) (end - p_offset);
+        size_t slen = (size_t) p_filesz;
 
-        if (slen > 0 && s[slen - 1] == '\0')
-            slen--;
+        /* Require NUL terminator within the segment. */
+        if (slen == 0 || s[slen - 1] != '\0')
+            return -1;
+        slen--; /* exclude trailing NUL from length */
 
         if (slen == 0)
-            return 0;
+            return -1;
 
+        /* Reject if path does not fit in caller's buffer. */
         if (slen >= out_size)
-            slen = out_size - 1;
+            return -1;
         memcpy(out, s, slen);
         out[slen] = '\0';
 
@@ -413,7 +417,7 @@ int kbox_build_elf_load_plan(const unsigned char *buf,
         p_memsz = read_le64(buf + off + P_MEMSZ_OFF);
         p_align = read_le64(buf + off + P_ALIGN_OFF);
 
-        if (p_filesz > p_memsz)
+        if (p_memsz && p_filesz > p_memsz)
             return -1;
 
         /* Validate that p_offset + p_filesz does not overflow.  We do

@@ -1,2 +1,3 @@
 55ea3e5a7c2c35e6268c5dcbb8e45a9cd5b0e372e7b4e798499a526834f7ed90  alpine-minirootfs-3.21.0-x86_64.tar.gz
 f31202c4070c4ef7de9e157e1bd01cb4da3a2150035d74ea5372c5e86f1efac1  alpine-minirootfs-3.21.0-aarch64.tar.gz
+b2c5ed2be586aebd2da5dd13dbc96bc8cc41b72e517d0726dfbbb0a9810e66d6  alpine-minirootfs-3.21.0-riscv64.tar.gz

@@ -9,6 +9,7 @@
  *
  */
 
+#include <dirent.h>
 #include <errno.h>
 /* seccomp types via seccomp.h -> seccomp-defs.h */
 #include <poll.h>
@@ -360,6 +361,44 @@ static int supervise_loop(struct kbox_supervisor_ctx *ctx)
             fprintf(stderr, "kbox: failed to decode seccomp notification\n");
             goto out;
         }
+
+        /* One-time scan: register every FD the child inherited from the
+         * parent environment as SHADOW_ONLY.  Without this, FDs beyond
+         * stdio (e.g. fd 3 from a logging daemon, fd 255 from bash)
+         * would hit the EBADF policy.  Runs while the tracee is blocked
+         * in USER_NOTIF so no race with the child's own FD operations.
+         */
+        if (!ctx->inherited_fds_tracked) {
+            char fd_dir_path[64];
+            DIR *fd_dir;
+            struct dirent *de;
+
+            snprintf(fd_dir_path, sizeof(fd_dir_path), "/proc/%d/fd",
+                     (int) ctx->child_pid);
+            fd_dir = opendir(fd_dir_path);
+            if (fd_dir) {
+                while ((de = readdir(fd_dir)) != NULL) {
+                    char *endp;
+                    long ifd;
+
+                    if (de->d_name[0] == '.')
+                        continue;
+                    errno = 0;
+                    ifd = strtol(de->d_name, &endp, 10);
+                    if (errno || *endp != '\0' || ifd < 0)
+                        continue;
+                    if (ifd >= KBOX_FD_BASE)
+                        continue;
+                    if (kbox_fd_table_get_lkl(ctx->fd_table, ifd) != -1)
+                        continue;
+                    kbox_fd_table_insert_at(ctx->fd_table, ifd,
+                                            KBOX_LKL_FD_SHADOW_ONLY, 0);
+                }
+                closedir(fd_dir);
+            }
+            ctx->inherited_fds_tracked = 1;
+        }
+
         d = kbox_dispatch_request(ctx, &req);
 
         /* Build and send response. */
@@ -443,8 +482,8 @@ int kbox_run_supervisor(const struct kbox_sysnrs *sysnrs,
     /* Architecture-specific host syscall numbers for the BPF filter. */
 #if defined(__x86_64__)
     const struct kbox_host_nrs *host_nrs = &HOST_NRS_X86_64;
-#elif defined(__aarch64__)
-    const struct kbox_host_nrs *host_nrs = &HOST_NRS_AARCH64;
+#elif defined(__aarch64__) || (defined(__riscv) && __riscv_xlen == 64)
+    const struct kbox_host_nrs *host_nrs = &HOST_NRS_GENERIC;
 #else
 #error "Unsupported architecture"
 #endif
@@ -602,6 +641,12 @@ int kbox_run_supervisor(const struct kbox_sysnrs *sysnrs,
 
     /* 4b. Set up supervisor context. */
     kbox_fd_table_init(&fd_table);
+
+    /* Register stdio (0, 1, 2) as host-passthrough FDs so the EBADF policy
+     * for untracked FDs does not block inherited terminal/pipe I/O.
+     */
+    for (int i = 0; i < 3; i++)
+        kbox_fd_table_insert_at(&fd_table, i, KBOX_LKL_FD_SHADOW_ONLY, 0);
 
     memset(&ctx, 0, sizeof(ctx));
     ctx.sysnrs = sysnrs;

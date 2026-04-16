@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: MIT */
 
+#include <errno.h>
 #include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
@@ -178,14 +179,33 @@ static void build_aarch64_syscall_cancel_open_wrapper_elf(unsigned char *buf,
                                                           size_t size)
 {
     init_elf64(buf, size, EM_AARCH64, 1);
-    set_phdr(buf, 0, PT_LOAD, PF_X, 120, 0x4000, 24, 24);
+    set_phdr(buf, 0, PT_LOAD, PF_X, 120, 0x4000, 48, 48);
 
-    put_le32(buf + 120, 0xd2800706u); /* mov x6, #56 */
-    put_le32(buf + 124, 0xd2800005u); /* mov x5, #0 */
-    put_le32(buf + 128, 0xd2800004u); /* mov x4, #0 */
-    put_le32(buf + 132, 0x14000002u); /* b +8 */
-    put_le32(buf + 136, 0xd503201fu); /* nop */
-    put_le32(buf + 140, 0xd503201fu); /* nop */
+    /* Segment layout:
+     *   +0:  __syscall_cancel_arch body (arg-shuffle signature):
+     *          mov  x8, x1
+     *          mov  x0, x2
+     *          mov  x1, x3
+     *          mov  x2, x4
+     *          svc  #0
+     *          ret
+     *   +24: nop, nop
+     *   +32: movz x6, #56
+     *   +36: bl -36 (target = offset 0, the first mov above)
+     *   +40: nop, nop
+     */
+    put_le32(buf + 120 + 0, 0xaa0103e8u);  /* mov x8, x1 */
+    put_le32(buf + 120 + 4, 0xaa0203e0u);  /* mov x0, x2 */
+    put_le32(buf + 120 + 8, 0xaa0303e1u);  /* mov x1, x3 */
+    put_le32(buf + 120 + 12, 0xaa0403e2u); /* mov x2, x4 */
+    put_le32(buf + 120 + 16, 0xd4000001u); /* svc #0 */
+    put_le32(buf + 120 + 20, 0xd65f03c0u); /* ret */
+    put_le32(buf + 120 + 24, 0xd503201fu); /* nop */
+    put_le32(buf + 120 + 28, 0xd503201fu); /* nop */
+    put_le32(buf + 120 + 32, 0xd2800706u); /* movz x6, #56 */
+    put_le32(buf + 120 + 36, 0x97fffff7u); /* bl -36 -> offset 0 */
+    put_le32(buf + 120 + 40, 0xd503201fu); /* nop */
+    put_le32(buf + 120 + 44, 0xd503201fu); /* nop */
 }
 
 static void build_unknown_elf(unsigned char *buf, size_t size)
@@ -943,6 +963,36 @@ static void test_rewrite_origin_map_add_site_source(void)
     kbox_rewrite_origin_map_reset(&map);
 }
 
+static void test_rewrite_origin_map_seal(void)
+{
+    struct kbox_rewrite_origin_map map;
+    struct kbox_rewrite_site site;
+    struct kbox_rewrite_origin_entry entry;
+
+    memset(&site, 0, sizeof(site));
+    site.vaddr = 0x3000;
+    site.width = 2;
+    site.original[0] = 0x0f;
+    site.original[1] = 0x05;
+
+    kbox_rewrite_origin_map_init(&map, KBOX_REWRITE_ARCH_X86_64);
+    ASSERT_EQ(kbox_rewrite_origin_map_add_site_source(&map, &site,
+                                                      KBOX_LOADER_MAPPING_MAIN),
+              0);
+    ASSERT_EQ(kbox_rewrite_origin_map_seal(&map), 0);
+    ASSERT_TRUE(map.sealed);
+    ASSERT_TRUE(map.mapping_size >= sizeof(*map.entries));
+    ASSERT_EQ(kbox_rewrite_origin_map_find(&map, 0x3002, &entry), 1);
+    ASSERT_EQ(entry.origin, 0x3002);
+    ASSERT_EQ(entry.source, KBOX_LOADER_MAPPING_MAIN);
+    errno = 0;
+    ASSERT_EQ(kbox_rewrite_origin_map_add_site_source(
+                  &map, &site, KBOX_LOADER_MAPPING_INTERP),
+              -1);
+    ASSERT_EQ(errno, EPERM);
+    kbox_rewrite_origin_map_reset(&map);
+}
+
 static void test_rewrite_probe_x86_64_page_zero_allowed(void)
 {
     struct kbox_rewrite_trampoline_probe probe;
@@ -1010,6 +1060,24 @@ static void test_rewrite_has_wrapper_syscalls_aarch64(void)
     ASSERT_EQ(kbox_rewrite_has_wrapper_syscalls(
                   elf, sizeof(elf), KBOX_REWRITE_ARCH_AARCH64, allow, 2),
               0);
+}
+
+static void test_rewrite_has_fork_sites_aarch64_direct(void)
+{
+    unsigned char elf[192];
+    struct kbox_host_nrs host_nrs;
+
+    memset(&host_nrs, 0xff, sizeof(host_nrs));
+    host_nrs.clone = 220;
+    host_nrs.fork = 1079;
+    host_nrs.vfork = 1080;
+    host_nrs.clone3 = 435;
+
+    build_aarch64_wrapper_elf_nr(elf, sizeof(elf), 220);
+    ASSERT_EQ(kbox_rewrite_has_fork_sites(elf, sizeof(elf), &host_nrs), 1);
+
+    build_aarch64_wrapper_elf_nr(elf, sizeof(elf), 56);
+    ASSERT_EQ(kbox_rewrite_has_fork_sites(elf, sizeof(elf), &host_nrs), 0);
 }
 
 static void test_rewrite_has_syscall_cancel_wrapper_syscalls_aarch64(void)
@@ -1206,8 +1274,8 @@ static void test_rewrite_visit_memfd_wrapper_candidates_aarch64(void)
     ASSERT_EQ(collect.candidates[0].arch, KBOX_REWRITE_ARCH_AARCH64);
     ASSERT_EQ(collect.candidates[0].kind,
               KBOX_REWRITE_WRAPPER_CANDIDATE_SYSCALL_CANCEL);
-    ASSERT_EQ(collect.candidates[0].file_offset, (uint64_t) 132);
-    ASSERT_EQ(collect.candidates[0].vaddr, (uint64_t) 0x400c);
+    ASSERT_EQ(collect.candidates[0].file_offset, (uint64_t) 156);
+    ASSERT_EQ(collect.candidates[0].vaddr, (uint64_t) 0x4024);
     ASSERT_EQ(collect.candidates[0].nr, (uint64_t) 56);
     ASSERT_EQ(collect.candidates[0].family_mask,
               (uint32_t) KBOX_REWRITE_WRAPPER_FAMILY_OPEN);
@@ -1246,8 +1314,8 @@ static void test_rewrite_collect_memfd_wrapper_candidates_aarch64(void)
     ASSERT_EQ(candidates[0].arch, KBOX_REWRITE_ARCH_AARCH64);
     ASSERT_EQ(candidates[0].kind,
               KBOX_REWRITE_WRAPPER_CANDIDATE_SYSCALL_CANCEL);
-    ASSERT_EQ(candidates[0].file_offset, (uint64_t) 132);
-    ASSERT_EQ(candidates[0].vaddr, (uint64_t) 0x400c);
+    ASSERT_EQ(candidates[0].file_offset, (uint64_t) 156);
+    ASSERT_EQ(candidates[0].vaddr, (uint64_t) 0x4024);
     ASSERT_EQ(candidates[0].nr, (uint64_t) 56);
     close(fd);
 }
@@ -1289,8 +1357,8 @@ static void test_rewrite_collect_memfd_wrapper_candidates_by_kind_aarch64(void)
     ASSERT_EQ(count, (size_t) 1);
     ASSERT_EQ(candidates[0].kind,
               KBOX_REWRITE_WRAPPER_CANDIDATE_SYSCALL_CANCEL);
-    ASSERT_EQ(candidates[0].file_offset, (uint64_t) 132);
-    ASSERT_EQ(candidates[0].vaddr, (uint64_t) 0x400c);
+    ASSERT_EQ(candidates[0].file_offset, (uint64_t) 156);
+    ASSERT_EQ(candidates[0].vaddr, (uint64_t) 0x4024);
     close(fd);
 }
 
@@ -1409,8 +1477,8 @@ static void test_rewrite_apply_memfd_phase1_path_candidates_aarch64(void)
                                                               &applied, NULL),
               0);
     ASSERT_EQ(applied, (size_t) 0);
-    ASSERT_EQ(pread(fd, patched, sizeof(patched), 132), (ssize_t) 4);
-    ASSERT_EQ(memcmp(patched, "\x02\x00\x00\x14", 4), 0);
+    ASSERT_EQ(pread(fd, patched, sizeof(patched), 156), (ssize_t) 4);
+    ASSERT_EQ(memcmp(patched, "\xf7\xff\xff\x97", 4), 0);
     close(fd);
 }
 
@@ -1456,11 +1524,13 @@ void test_rewrite_init(void)
     TEST_REGISTER(test_rewrite_origin_map_x86_64);
     TEST_REGISTER(test_rewrite_origin_map_aarch64);
     TEST_REGISTER(test_rewrite_origin_map_add_site_source);
+    TEST_REGISTER(test_rewrite_origin_map_seal);
     TEST_REGISTER(test_rewrite_probe_x86_64_page_zero_allowed);
     TEST_REGISTER(test_rewrite_probe_x86_64_page_zero_blocked);
     TEST_REGISTER(test_rewrite_fast_host_syscall0_classification);
     TEST_REGISTER(test_rewrite_has_wrapper_syscalls_x86_64);
     TEST_REGISTER(test_rewrite_has_wrapper_syscalls_aarch64);
+    TEST_REGISTER(test_rewrite_has_fork_sites_aarch64_direct);
     TEST_REGISTER(test_rewrite_has_syscall_cancel_wrapper_syscalls_aarch64);
     TEST_REGISTER(test_rewrite_wrapper_family_mask_memfd_x86_64);
     TEST_REGISTER(test_rewrite_wrapper_family_mask_memfd_aarch64);

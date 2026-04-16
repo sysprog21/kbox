@@ -165,7 +165,8 @@ static void *rx_reader_loop(void *arg)
 
         /* Signal the eventfd to wake net_poll. */
         uint64_t val = 1;
-        (void) write(rx_eventfd, &val, sizeof(val));
+        n = write(rx_eventfd, &val, sizeof(val));
+        (void) n;
     }
 
 out:
@@ -392,7 +393,8 @@ static void slirp_notify(void *opaque)
     (void) opaque;
     /* Wake the event loop so it picks up new SLIRP state. */
     char c = 'W';
-    (void) write(wakeup_pipe[1], &c, 1);
+    ssize_t n = write(wakeup_pipe[1], &c, 1);
+    (void) n;
 }
 
 static const SlirpCb slirp_callbacks = {
@@ -671,7 +673,8 @@ static int net_tx(struct lkl_netdev *nd, struct iovec *iov, int cnt)
 
     /* Wake the event loop to process the TX packet. */
     char c = 'T';
-    (void) write(wakeup_pipe[1], &c, 1);
+    ssize_t n = write(wakeup_pipe[1], &c, 1);
+    (void) n;
     return 0;
 }
 
@@ -742,13 +745,15 @@ static int net_poll(struct lkl_netdev *nd)
     unsigned tail = __atomic_load_n(&rx_tail, __ATOMIC_RELAXED);
     if (head != tail) {
         uint64_t val;
-        (void) read(rx_eventfd, &val, sizeof(val));
+        ssize_t n = read(rx_eventfd, &val, sizeof(val));
+        (void) n;
         flags |= LKL_DEV_NET_POLL_RX;
     } else {
         struct pollfd pfd = {.fd = rx_eventfd, .events = POLLIN};
         if (poll(&pfd, 1, 100) > 0) {
             uint64_t val;
-            (void) read(rx_eventfd, &val, sizeof(val));
+            ssize_t n = read(rx_eventfd, &val, sizeof(val));
+            (void) n;
             flags |= LKL_DEV_NET_POLL_RX;
         }
     }
@@ -763,7 +768,8 @@ static void net_poll_hup(struct lkl_netdev *nd)
     (void) nd;
     /* Write a zero-length frame to unblock the RX read. */
     uint16_t zero = 0;
-    (void) write(rx_pipe[1], &zero, sizeof(zero));
+    ssize_t n = write(rx_pipe[1], &zero, sizeof(zero));
+    (void) n;
 }
 
 static void net_free(struct lkl_netdev *nd)
@@ -990,7 +996,8 @@ err_event_thread:
     __atomic_store_n(&slirp_running, 0, __ATOMIC_RELAXED);
     {
         char c = 'Q';
-        (void) write(wakeup_pipe[1], &c, 1);
+        ssize_t n = write(wakeup_pipe[1], &c, 1);
+        (void) n;
     }
     pthread_join(slirp_thread, NULL);
     __atomic_store_n(&slirp_thread_started, 0, __ATOMIC_RELEASE);
@@ -1138,7 +1145,8 @@ void kbox_net_cleanup(void)
 
     /* Wake the event loop and RX reader so they exit. */
     char c = 'Q';
-    (void) write(wakeup_pipe[1], &c, 1);
+    ssize_t n = write(wakeup_pipe[1], &c, 1);
+    (void) n;
     net_poll_hup(&slirp_netdev); /* wake rx_reader_thread via rx_pipe */
 
     pthread_join(slirp_thread, NULL);
@@ -1218,7 +1226,8 @@ int kbox_net_register_socket(int lkl_fd, int supervisor_fd, int sock_type)
 
     /* Wake the event loop. */
     char c = 'R';
-    (void) write(wakeup_pipe[1], &c, 1);
+    ssize_t n = write(wakeup_pipe[1], &c, 1);
+    (void) n;
     return 0;
 }
 
@@ -1243,7 +1252,8 @@ void kbox_net_deregister_socket(int lkl_fd)
 
     /* Wake the event loop so it closes the supervisor_fd promptly. */
     char c = 'D';
-    (void) write(wakeup_pipe[1], &c, 1);
+    ssize_t n = write(wakeup_pipe[1], &c, 1);
+    (void) n;
 }
 
 #else /* !KBOX_HAS_SLIRP */

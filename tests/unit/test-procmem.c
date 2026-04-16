@@ -121,6 +121,99 @@ static void test_vm_write_force_rejects_bad_pointer(void)
     ASSERT_EQ(kbox_vm_write_force(getpid(), 0, NULL, 0), 0);
 }
 
+/* kbox_vm_read_string returns -EFAULT on unmapped memory (not stale errno). */
+static void test_vm_read_string_unmapped_returns_efault(void)
+{
+    long page_size = sysconf(_SC_PAGESIZE);
+    char *mapping;
+    char buf[64];
+    pid_t pid;
+    int status = 0;
+
+    ASSERT_TRUE(page_size > 0);
+    mapping = mmap(NULL, (size_t) page_size, PROT_READ | PROT_WRITE,
+                   MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    ASSERT_NE(mapping, MAP_FAILED);
+    ASSERT_EQ(munmap(mapping, (size_t) page_size), 0);
+
+    /* Fork so process_vm_readv targets our own child (same address space
+     * layout after fork, but the mapping is unmapped in the child too).
+     */
+    pid = fork();
+    ASSERT_TRUE(pid >= 0);
+    if (pid == 0) {
+        int rc = kbox_vm_read_string(getpid(), (uint64_t) (uintptr_t) mapping,
+                                     buf, sizeof(buf));
+        _exit(rc == -EFAULT ? 0 : 1);
+    }
+
+    ASSERT_EQ(waitpid(pid, &status, 0), pid);
+    ASSERT_TRUE(WIFEXITED(status));
+    ASSERT_EQ(WEXITSTATUS(status), 0);
+}
+
+/* kbox_vm_read_string on valid NUL-terminated string returns length. */
+static void test_vm_read_string_valid(void)
+{
+    char buf[64];
+    const char *src = "hello";
+    int rc = kbox_vm_read_string(getpid(), (uint64_t) (uintptr_t) src, buf,
+                                 sizeof(buf));
+    ASSERT_EQ(rc, 5);
+    ASSERT_STREQ(buf, "hello");
+}
+
+/* kbox_vm_read_string rejects NULL pointer. */
+static void test_vm_read_string_null_returns_efault(void)
+{
+    char buf[64];
+    ASSERT_EQ(kbox_vm_read_string(getpid(), 0, buf, sizeof(buf)), -EFAULT);
+}
+
+/* Cross-page short read: string without NUL at end of readable page,
+ * next page unmapped.  process_vm_readv returns a short read (< chunk),
+ * and since no NUL was found, kbox_vm_read_string returns -EFAULT.
+ */
+static void test_vm_read_string_cross_page_short_read(void)
+{
+    long page_size = sysconf(_SC_PAGESIZE);
+    char *mapping;
+    char buf[64];
+    pid_t pid;
+    int status = 0;
+
+    ASSERT_TRUE(page_size > 0);
+
+    /* Map two pages, then unmap the second so reads crossing the boundary
+     * produce a short read from process_vm_readv.
+     */
+    mapping = mmap(NULL, (size_t) page_size * 2, PROT_READ | PROT_WRITE,
+                   MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    ASSERT_NE(mapping, MAP_FAILED);
+
+    /* Fill end of first page with non-NUL bytes (no terminator). */
+    memset(mapping + page_size - 4, 'A', 4);
+    ASSERT_EQ(munmap(mapping + page_size, (size_t) page_size), 0);
+
+    pid = fork();
+    ASSERT_TRUE(pid >= 0);
+    if (pid == 0) {
+        /* Read starting 4 bytes before page boundary.  The first chunk
+         * succeeds (short read of 4 bytes, no NUL), then the next chunk
+         * hits unmapped memory -> returns -EFAULT.
+         */
+        int rc = kbox_vm_read_string(
+            getpid(), (uint64_t) (uintptr_t) (mapping + page_size - 4), buf,
+            sizeof(buf));
+        _exit(rc == -EFAULT ? 0 : 1);
+    }
+
+    ASSERT_EQ(waitpid(pid, &status, 0), pid);
+    ASSERT_TRUE(WIFEXITED(status));
+    ASSERT_EQ(WEXITSTATUS(status), 0);
+    munmap(mapping, (size_t) page_size);
+}
+
 void test_procmem_init(void)
 {
     TEST_REGISTER(test_current_guest_mem_read_write);
@@ -130,4 +223,8 @@ void test_procmem_init(void)
     TEST_REGISTER(test_current_guest_mem_force_write_cross_page);
     TEST_REGISTER(test_current_guest_mem_unmapped_pointer_returns_error);
     TEST_REGISTER(test_vm_write_force_rejects_bad_pointer);
+    TEST_REGISTER(test_vm_read_string_unmapped_returns_efault);
+    TEST_REGISTER(test_vm_read_string_valid);
+    TEST_REGISTER(test_vm_read_string_null_returns_efault);
+    TEST_REGISTER(test_vm_read_string_cross_page_short_read);
 }

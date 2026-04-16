@@ -17,6 +17,9 @@ static int machine_to_entry_arch(uint16_t machine,
     case 0xb7:
         *arch_out = KBOX_LOADER_ENTRY_ARCH_AARCH64;
         return 0;
+    case 0xf3:
+        *arch_out = KBOX_LOADER_ENTRY_ARCH_RISCV64;
+        return 0;
     default:
         return -1;
     }

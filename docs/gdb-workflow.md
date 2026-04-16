@@ -24,7 +24,7 @@ gdb ./kbox
 (gdb) add-symbol-file /path/to/lkl/vmlinux
 (gdb) source scripts/gdb/kbox-gdb.py
 (gdb) kbox-lkl-load /path/to/lkl
-(gdb) set args image -S rootfs.ext4 -- /bin/sh
+(gdb) set args -S rootfs.ext4 -- /bin/sh
 (gdb) run
 ```
 
@@ -201,7 +201,7 @@ kbox forks a child (the tracee). GDB must follow the parent:
 When running under GDB with ASAN, disable LSAN (incompatible with ptrace):
 
 ```bash
-ASAN_OPTIONS=detect_leaks=0 gdb --args ./kbox image -S alpine.ext4 -c /bin/sh
+ASAN_OPTIONS=detect_leaks=0 gdb --args ./kbox -S alpine.ext4 -c /bin/sh
 ```
 
 ## Coordinated Syscall Tracing

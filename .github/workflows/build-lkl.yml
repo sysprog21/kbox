@@ -6,7 +6,7 @@
 # successful publish.
 #
 # The lkl-nightly release on sysprog21/kbox always contains exactly
-# one x86_64 and one aarch64 tarball (the latest build).
+# one x86_64, one aarch64 tarball and one riscv64 (the latest build).
 name: Build LKL (nightly)
 
 on:
@@ -36,8 +36,12 @@ jobs:
       contents: read
     outputs:
       lkl_commit: ${{ steps.head.outputs.commit }}
+      yml_hash: ${{ steps.compare.outputs.yml_hash }}
       needs_build: ${{ steps.compare.outputs.needs_build }}
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
       - name: Get upstream LKL HEAD
         id: head
         run: |
@@ -54,6 +58,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          CURRENT_YML=$(sha256sum .github/workflows/build-lkl.yml | awk '{print $1}')
+          echo "yml_hash=${CURRENT_YML}" >> "$GITHUB_OUTPUT"
+
           if [ "${{ inputs.force }}" = "true" ]; then
             echo "needs_build=true" >> "$GITHUB_OUTPUT"
             echo "Forced rebuild requested."
@@ -61,21 +68,30 @@ jobs:
           fi
 
           # Fetch BUILD_INFO from existing nightly release.
-          LAST_COMMIT=$(gh release view "${{ env.NIGHTLY_TAG }}" \
+          LAST_RELEASE=$(gh release view "${{ env.NIGHTLY_TAG }}" \
             --repo "${{ env.KBOX_REPO }}" \
-            --json body --jq '.body' 2>/dev/null \
+            --json body --jq '.body' 2>/dev/null) || LAST_RELEASE=""
+
+          LAST_COMMIT=$(echo "$LAST_RELEASE" \
             | grep -oP 'commit=\K[0-9a-f]+' | head -1) || LAST_COMMIT=""
 
-          CURRENT="${{ steps.head.outputs.commit }}"
-          if [ "$LAST_COMMIT" = "$CURRENT" ]; then
-            echo "needs_build=false" >> "$GITHUB_OUTPUT"
-            echo "Upstream unchanged (${CURRENT}). Skipping build."
-          else
+          LAST_YML=$(echo "$LAST_RELEASE" \
+            | grep -oP 'yml_hash=\K[0-9a-f]+' | head -1) || LAST_YML=""
+
+          CURRENT_COMMIT="${{ steps.head.outputs.commit }}"
+
+          if [ "$LAST_COMMIT" != "$CURRENT_COMMIT" ]; then
             echo "needs_build=true" >> "$GITHUB_OUTPUT"
-            echo "New upstream commit: ${CURRENT} (was: ${LAST_COMMIT:-none})"
+            echo "New upstream commit: ${CURRENT_COMMIT} (was: ${LAST_COMMIT:-none})"
+          elif [ "$LAST_YML" != "$CURRENT_YML" ]; then
+            echo "needs_build=true" >> "$GITHUB_OUTPUT"
+            echo "build-lkl.yml was changed"
+          else
+            echo "needs_build=false" >> "$GITHUB_OUTPUT"
+            echo "Upstream unchanged (${CURRENT_COMMIT}) and the build script unchanged. Skipping build."
           fi
 
-  # ---- Build x86_64 and aarch64 in parallel ----
+  # ---- Build x86_64, aarch64 and riscv64 in parallel ----
   build:
     needs: check-upstream
     if: needs.check-upstream.outputs.needs_build == 'true'
@@ -89,8 +105,10 @@ jobs:
             runner: ubuntu-24.04
           - arch: aarch64
             runner: ubuntu-24.04-arm
+          - arch: riscv64
+            runner: ubuntu-24.04-riscv
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
+    timeout-minutes: 360
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -114,7 +132,7 @@ jobs:
 
       - name: Package
         run: |
-          tar czf liblkl-${{ matrix.arch }}.tar.gz lkl-${{ matrix.arch }}/
+          tar czf liblkl-${{ matrix.arch }}.tar.gz -C lkl-${{ matrix.arch }}/ .
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
@@ -142,16 +160,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           LKL_COMMIT="${{ needs.check-upstream.outputs.lkl_commit }}"
+          YML_HASH="${{ needs.check-upstream.outputs.yml_hash }}"
           BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
           cat > /tmp/release-notes.md <<EOF
           Nightly prebuilt liblkl.a for kbox.
 
           commit=${LKL_COMMIT}
+          yml_hash=${YML_HASH}
           date=${BUILD_DATE}
           upstream=https://github.com/${{ env.LKL_UPSTREAM }}/commit/${LKL_COMMIT}
 
-          Contains: liblkl-x86_64.tar.gz, liblkl-aarch64.tar.gz
+          Contains: liblkl-x86_64.tar.gz, liblkl-aarch64.tar.gz, liblkl-riscv64.tar.gz
           Each tarball includes: liblkl.a, lkl.h, autoconf.h, vmlinux-gdb.py,
           BUILD_INFO, sha256sums.txt
           EOF
@@ -168,4 +188,5 @@ jobs:
             --notes-file /tmp/release-notes.md \
             --prerelease \
             dist/liblkl-x86_64.tar.gz \
-            dist/liblkl-aarch64.tar.gz
+            dist/liblkl-aarch64.tar.gz \
+            dist/liblkl-riscv64.tar.gz

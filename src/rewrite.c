@@ -15,6 +15,7 @@
 
 #include "io-util.h"
 #include "kbox/x86-decode.h"
+#include "procmem.h"
 #include "rewrite.h"
 #include "syscall-nr.h"
 #include "syscall-trap.h"
@@ -41,6 +42,7 @@
 #define AARCH64_VENEER_SIZE 16u /* LDR x16, +8; BR x16; .quad target */
 #define AARCH64_VENEER_SEARCH_STEP (64u * 1024u)
 #define AARCH64_VENEER_SEARCH_LIMIT ((uint64_t) 127 * 1024 * 1024)
+#define KBOX_REWRITE_SCAN_CHUNK (64u * 1024u)
 
 #ifndef MAP_FIXED_NOREPLACE
 #define MAP_FIXED_NOREPLACE 0x100000
@@ -87,6 +89,11 @@ static inline void store_active_rewrite_runtime(
     struct kbox_rewrite_runtime *runtime)
 {
     __atomic_store_n(&active_rewrite_runtime, runtime, __ATOMIC_RELEASE);
+}
+
+struct kbox_rewrite_runtime *kbox_rewrite_runtime_active(void)
+{
+    return load_active_rewrite_runtime();
 }
 
 static void write_le32(unsigned char out[4], uint32_t value);
@@ -307,6 +314,199 @@ static int aarch64_movz_reg_imm16(uint32_t insn,
     return -1;
 }
 
+/* Decode an aarch64 BL instruction and return the signed byte offset
+ * from the BL itself to its target. BL encodes a 26-bit signed word
+ * displacement.
+ */
+static int aarch64_bl_target_offset(uint32_t insn, int64_t *offset_out)
+{
+    int32_t imm26;
+
+    if (!offset_out)
+        return -1;
+    if ((insn & 0xfc000000u) != 0x94000000u)
+        return -1;
+
+    {
+        uint32_t raw = insn & 0x03ffffffu;
+        if (raw & (1u << 25))
+            raw |= 0xfc000000u;
+        imm26 = (int32_t) raw;
+    }
+    *offset_out = ((int64_t) imm26) * 4;
+    return 0;
+}
+
+/* Match `mov Xd, Xm` (reg-to-reg move), encoded as
+ * `orr Xd, xzr, Xm, lsl #0`: 0xaa0003e0 | (m<<16) | d, with bits 15:10
+ * (shift amount) zero and bits 9:5 (Rn) = xzr (31).
+ */
+static int aarch64_is_mov_reg_reg(uint32_t insn)
+{
+    return (insn & 0xffe0ffe0u) == 0xaa0003e0u;
+}
+
+/* Tight signature for musl __syscall_cancel_arch: an `svc #0`
+ * immediately preceded by at least 4 consecutive `mov Xd, Xm`
+ * register-to-register moves (the arg-shuffle the function performs
+ * to move kernel syscall arguments into place). Returns 1 if the svc
+ * at @svc_off matches this signature. This is the discriminator
+ * between a real musl cancel-wrapper call chain and an arbitrary
+ * function that happens to issue a syscall.
+ */
+static int aarch64_svc_is_cancel_arch(const unsigned char *segment_bytes,
+                                      size_t segment_size,
+                                      size_t svc_off)
+{
+    const size_t required_moves = 4;
+    size_t matched = 0;
+    size_t off;
+
+    if (!segment_bytes || svc_off + 4 > segment_size)
+        return 0;
+    if (svc_off < required_moves * 4)
+        return 0;
+
+    off = svc_off - 4;
+    while (matched < required_moves) {
+        uint32_t insn = (uint32_t) segment_bytes[off + 0] |
+                        ((uint32_t) segment_bytes[off + 1] << 8) |
+                        ((uint32_t) segment_bytes[off + 2] << 16) |
+                        ((uint32_t) segment_bytes[off + 3] << 24);
+        if (!aarch64_is_mov_reg_reg(insn))
+            return 0;
+        matched++;
+        if (off < 4)
+            break;
+        off -= 4;
+    }
+    return matched >= required_moves;
+}
+
+/* Walk the BL chain from @start_off looking for a `svc #0` whose
+ * immediate context matches the __syscall_cancel_arch arg-shuffle
+ * signature. Bounded in both window size (per level) and depth. Stops
+ * scanning at the first `ret` in each function to avoid crossing
+ * function boundaries.
+ */
+static int aarch64_scan_reaches_cancel_svc(const unsigned char *segment_bytes,
+                                           size_t segment_size,
+                                           size_t start_off,
+                                           size_t max_insns,
+                                           int depth_remaining)
+{
+    size_t end = start_off + (max_insns * 4);
+    int saw_bl_candidate = 0;
+    size_t bl_candidate_target = 0;
+
+    if (!segment_bytes || start_off + 4 > segment_size)
+        return 0;
+    if (end > segment_size)
+        end = segment_size;
+
+    for (size_t off = start_off; off + 4 <= end; off += 4) {
+        uint32_t insn = (uint32_t) segment_bytes[off] |
+                        ((uint32_t) segment_bytes[off + 1] << 8) |
+                        ((uint32_t) segment_bytes[off + 2] << 16) |
+                        ((uint32_t) segment_bytes[off + 3] << 24);
+
+        if (insn == 0xd4000001u) {
+            if (aarch64_svc_is_cancel_arch(segment_bytes, segment_size, off))
+                return 1;
+            /* svc in this function is not cancel_arch's: keep
+             * walking. The svc is rare enough that this is cheap.
+             */
+            continue;
+        }
+        if (insn == 0xd65f03c0u) /* ret terminates this function */
+            break;
+
+        /* First BL encountered. Record the target and recurse once
+         * this function is exhausted.
+         */
+        if (!saw_bl_candidate && (insn & 0xfc000000u) == 0x94000000u) {
+            int64_t delta;
+            int64_t tgt;
+            if (aarch64_bl_target_offset(insn, &delta) == 0) {
+                tgt = (int64_t) off + delta;
+                if (tgt >= 0 && (uint64_t) tgt + 4 <= (uint64_t) segment_size) {
+                    bl_candidate_target = (size_t) tgt;
+                    saw_bl_candidate = 1;
+                }
+            }
+        }
+    }
+
+    if (saw_bl_candidate && depth_remaining > 0) {
+        return aarch64_scan_reaches_cancel_svc(segment_bytes, segment_size,
+                                               bl_candidate_target, max_insns,
+                                               depth_remaining - 1);
+    }
+    return 0;
+}
+
+static int aarch64_target_is_syscall_cancel(const unsigned char *segment_bytes,
+                                            size_t segment_size,
+                                            size_t target_off)
+{
+    /* Depth-2 BL walk. Musl static __syscall_cancel is:
+     *   __syscall_cancel -> __internal_syscall_cancel -> __syscall_cancel_arch
+     * so two BL hops are enough to reach the arch-specific svc. The
+     * per-level window is 128 instructions (512 bytes), which covers
+     * realistic musl function bodies without wandering into
+     * unrelated code. The signature match at the svc (4+ consecutive
+     * reg-to-reg moves) distinguishes the arch function from ordinary
+     * syscall wrappers.
+     */
+    return aarch64_scan_reaches_cancel_svc(segment_bytes, segment_size,
+                                           target_off, 128, 2);
+}
+
+/* Translate a BL at @bl_off inside @segment_bytes to its target offset
+ * within the same segment. Returns 0 on success with *target_off_out
+ * set, -1 on malformed BL or cross-segment targets.
+ */
+static int aarch64_bl_target_in_segment(const unsigned char *segment_bytes,
+                                        size_t segment_size,
+                                        size_t bl_off,
+                                        size_t *target_off_out)
+{
+    uint32_t insn;
+    int64_t delta;
+    int64_t target;
+
+    if (!segment_bytes || !target_off_out || bl_off + 4 > segment_size)
+        return -1;
+    insn = (uint32_t) segment_bytes[bl_off] |
+           ((uint32_t) segment_bytes[bl_off + 1] << 8) |
+           ((uint32_t) segment_bytes[bl_off + 2] << 16) |
+           ((uint32_t) segment_bytes[bl_off + 3] << 24);
+    if (aarch64_bl_target_offset(insn, &delta) < 0)
+        return -1;
+    target = (int64_t) bl_off + delta;
+    if (target < 0 || (uint64_t) target + 4 > (uint64_t) segment_size)
+        return -1;
+    *target_off_out = (size_t) target;
+    return 0;
+}
+
+/* Combined heuristic + target validator. Returns 1 if the BL at
+ * segment offset @bl_off is a promote-eligible cancel-wrapper call,
+ * 0 otherwise.
+ */
+static int aarch64_bl_is_cancel_wrapper(const unsigned char *segment_bytes,
+                                        size_t segment_size,
+                                        size_t bl_off)
+{
+    size_t target_off;
+
+    if (aarch64_bl_target_in_segment(segment_bytes, segment_size, bl_off,
+                                     &target_off) < 0)
+        return 0;
+    return aarch64_target_is_syscall_cancel(segment_bytes, segment_size,
+                                            target_off);
+}
+
 static int encode_x86_64_virtual_procinfo_patch(
     const struct kbox_rewrite_site *site,
     struct kbox_rewrite_patch *patch)
@@ -408,10 +608,10 @@ static int encode_aarch64_virtual_procinfo_patch(
     if (aarch64_prev_insn_syscall_nr(image, image_len, site_off, &nr) < 0)
         return -1;
 
-    if (nr == (uint32_t) HOST_NRS_AARCH64.getpid ||
-        nr == (uint32_t) HOST_NRS_AARCH64.gettid) {
+    if (nr == (uint32_t) HOST_NRS_GENERIC.getpid ||
+        nr == (uint32_t) HOST_NRS_GENERIC.gettid) {
         value = 1;
-    } else if (nr == (uint32_t) HOST_NRS_AARCH64.getppid) {
+    } else if (nr == (uint32_t) HOST_NRS_GENERIC.getppid) {
         value = 0;
     } else {
         return -1;
@@ -492,6 +692,11 @@ static uint64_t align_up_u64_or_zero(uint64_t value, uint64_t align)
     if (value > UINT64_MAX - mask)
         return 0;
     return (value + mask) & ~mask;
+}
+
+static int origin_map_is_sealed(const struct kbox_rewrite_origin_map *map)
+{
+    return map && map->sealed;
 }
 
 static int rewrite_origin_addr(const struct kbox_rewrite_site *site,
@@ -824,13 +1029,17 @@ int kbox_rewrite_plan_site(const struct kbox_rewrite_site *site,
     }
 
     if (kbox_rewrite_encode_patch(site, trampoline_addr, &planned->patch) < 0) {
-        /* For aarch64 SVC sites where B offset exceeds ±128MB, mark the
-         * patch as deferred (width=0) rather than failing. The runtime
-         * install path will allocate a veneer to bridge the gap.
+        /* For aarch64 4-byte sites whose B offset exceeds ±128MB, mark
+         * the patch as deferred (width=0) rather than failing. The
+         * runtime install path will allocate a veneer to bridge the
+         * gap. This applies to both SVC sites (svc #0 = 01 00 00 d4)
+         * and BL cancel-wrapper sites (bl imm26, high byte 0x94..0x97).
          */
-        if (site->width == 4 && site->original[0] == 0x01 &&
-            site->original[1] == 0x00 && site->original[2] == 0x00 &&
-            site->original[3] == 0xd4) {
+        int is_svc = (site->width == 4 && site->original[0] == 0x01 &&
+                      site->original[1] == 0x00 && site->original[2] == 0x00 &&
+                      site->original[3] == 0xd4);
+        int is_bl = (site->width == 4 && (site->original[3] & 0xfcu) == 0x94u);
+        if (is_svc || is_bl) {
             memset(&planned->patch, 0, sizeof(planned->patch));
         } else {
             return -1;
@@ -963,6 +1172,69 @@ static int analyze_segment(const struct kbox_elf_exec_segment *seg,
                 slot_index++;
             }
             ctx->candidates++;
+        }
+
+        /* Second pass: emit planned sites for cancel-style BL wrappers.
+         * Pattern: [movz x6, #nr] then a BL within a short window whose
+         * target points at a function containing the musl __syscall_cancel
+         * epilogue signature. The structural x6 + BL match alone is
+         * ambiguous with a normal 7-argument C call, so target
+         * validation is mandatory.
+         */
+        for (size_t i = 0; i + 3 < seg->file_size; i += 4) {
+            uint32_t insn;
+            uint32_t nr = UINT32_MAX;
+            size_t j;
+
+            insn = (uint32_t) segment_bytes[i] |
+                   ((uint32_t) segment_bytes[i + 1] << 8) |
+                   ((uint32_t) segment_bytes[i + 2] << 16) |
+                   ((uint32_t) segment_bytes[i + 3] << 24);
+            if (aarch64_movz_reg_imm16(insn, 6, &nr) < 0)
+                continue;
+
+            for (j = i + 4; j + 3 < seg->file_size && j <= i + 32; j += 4) {
+                uint32_t next = (uint32_t) segment_bytes[j] |
+                                ((uint32_t) segment_bytes[j + 1] << 8) |
+                                ((uint32_t) segment_bytes[j + 2] << 16) |
+                                ((uint32_t) segment_bytes[j + 3] << 24);
+
+                /* BL only. Plain B is a tail call: control would not
+                 * return to bl_pc + 4 after the trampoline executes.
+                 */
+                if ((next & 0xfc000000u) == 0x94000000u) {
+                    if (!aarch64_bl_is_cancel_wrapper(segment_bytes,
+                                                      seg->file_size, j))
+                        break;
+                    memset(&site, 0, sizeof(site));
+                    site.file_offset = seg->file_offset + j;
+                    site.vaddr = seg->vaddr + j;
+                    site.segment_vaddr = seg->vaddr;
+                    site.segment_mem_size = seg->mem_size;
+                    site.width = 4;
+                    memcpy(site.original, segment_bytes + j, 4);
+                    site.site_class = KBOX_REWRITE_SITE_WRAPPER;
+                    if (ctx->cb && ctx->cb(&site, ctx->opaque) < 0)
+                        return -1;
+                    if (ctx->planned_cb) {
+                        if (kbox_rewrite_plan_site(&site, &layout, slot_index,
+                                                   &planned) < 0)
+                            return -1;
+                        if (ctx->planned_cb(&planned, ctx->opaque) < 0)
+                            return -1;
+                        slot_index++;
+                    }
+                    ctx->candidates++;
+                    break;
+                }
+
+                /* SVC inside the window means the wrapper is doing its
+                 * own raw syscall, not delegating to __syscall_cancel.
+                 * The SVC pass above already covers this case.
+                 */
+                if (next == 0xd4000001u)
+                    break;
+            }
         }
         return 0;
     }
@@ -1907,10 +2179,17 @@ void kbox_rewrite_origin_map_reset(struct kbox_rewrite_origin_map *map)
 {
     if (!map)
         return;
-    free(map->entries);
+    if (map->entries) {
+        if (map->sealed && map->mapping_size > 0)
+            munmap(map->entries, map->mapping_size);
+        else
+            free(map->entries);
+    }
     map->entries = NULL;
     map->count = 0;
     map->cap = 0;
+    map->mapping_size = 0;
+    map->sealed = 0;
 }
 
 int kbox_rewrite_origin_map_add_site_source(
@@ -1924,6 +2203,10 @@ int kbox_rewrite_origin_map_add_site_source(
 
     if (!map || !site)
         return -1;
+    if (origin_map_is_sealed(map)) {
+        errno = EPERM;
+        return -1;
+    }
     if (rewrite_origin_addr(site, &origin) < 0) {
         if (errno == 0)
             errno = EINVAL;
@@ -2064,6 +2347,69 @@ int kbox_rewrite_origin_map_build_memfd(struct kbox_rewrite_origin_map *map,
     kbox_rewrite_origin_map_reset(map);
     return kbox_rewrite_visit_memfd_sites(fd, origin_map_collect_site_cb, map,
                                           report ? report : &local_report);
+}
+
+int kbox_rewrite_origin_map_seal(struct kbox_rewrite_origin_map *map)
+{
+    long page_size_long;
+    size_t page_size;
+    uint64_t bytes_u64;
+    uint64_t alloc_u64;
+    size_t alloc_size;
+    void *sealed_map;
+    struct kbox_rewrite_origin_entry *sealed_entries;
+
+    if (!map)
+        return -1;
+    if (map->sealed)
+        return 0;
+    if (!map->entries || map->count == 0) {
+        map->sealed = 1;
+        return 0;
+    }
+
+    page_size_long = sysconf(_SC_PAGESIZE);
+    if (page_size_long <= 0) {
+        if (page_size_long == -1 && errno == 0)
+            errno = EINVAL;
+        return -1;
+    }
+    page_size = (size_t) page_size_long;
+    if (page_size == 0 || (page_size & (page_size - 1)) != 0)
+        return -1;
+    if (__builtin_mul_overflow((uint64_t) map->count,
+                               (uint64_t) sizeof(*map->entries), &bytes_u64)) {
+        errno = EOVERFLOW;
+        return -1;
+    }
+    alloc_u64 = align_up_u64_or_zero(bytes_u64, (uint64_t) page_size);
+    if (alloc_u64 == 0 || alloc_u64 > (uint64_t) SIZE_MAX) {
+        errno = EOVERFLOW;
+        return -1;
+    }
+    alloc_size = (size_t) alloc_u64;
+
+    sealed_map = mmap(NULL, alloc_size, PROT_READ | PROT_WRITE,
+                      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (sealed_map == MAP_FAILED)
+        return -1;
+    sealed_entries = sealed_map;
+
+    // cppcheck-suppress nullPointerOutOfMemory
+    memcpy(sealed_entries, map->entries, (size_t) bytes_u64);
+    if (mprotect(sealed_entries, alloc_size, PROT_READ) != 0) {
+        int saved = errno;
+        munmap(sealed_entries, alloc_size);
+        errno = saved;
+        return -1;
+    }
+
+    free(map->entries);
+    map->entries = sealed_entries;
+    map->cap = map->count;
+    map->mapping_size = alloc_size;
+    map->sealed = 1;
+    return 0;
 }
 
 static int runtime_site_array_append(struct runtime_site_array *array,
@@ -2223,6 +2569,8 @@ static int alloc_aarch64_veneer_page(struct kbox_rewrite_runtime *runtime,
 #if defined(__aarch64__)
     uint64_t page_size;
     uint64_t search_lo, search_hi, addr;
+    uint64_t hint;
+    int64_t delta;
     void *region;
 
     if (!runtime || !veneer_base_out)
@@ -2242,6 +2590,24 @@ static int alloc_aarch64_veneer_page(struct kbox_rewrite_runtime *runtime,
     if (__builtin_add_overflow(near_addr, AARCH64_VENEER_SEARCH_LIMIT,
                                &search_hi))
         search_hi = UINT64_MAX - page_size;
+
+    hint = (near_addr + page_size) & ~(page_size - 1);
+    region = mmap((void *) (uintptr_t) hint, (size_t) page_size,
+                  PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (region != MAP_FAILED) {
+        delta = (int64_t) (uintptr_t) region - (int64_t) near_addr;
+        if (delta > -AARCH64_B_RANGE && delta < AARCH64_B_RANGE) {
+            runtime->trampoline_regions[runtime->trampoline_region_count]
+                .mapping = region;
+            runtime->trampoline_regions[runtime->trampoline_region_count].size =
+                (size_t) page_size;
+            runtime->trampoline_region_count++;
+            *veneer_base_out = (uint64_t) (uintptr_t) region;
+            return 0;
+        }
+        // cppcheck-suppress nullPointerOutOfMemory
+        munmap(region, (size_t) page_size);
+    }
 
     /* Search upward first (likely to succeed, past the mapping). */
     for (addr = (near_addr + page_size) & ~(page_size - 1); addr <= search_hi;
@@ -2442,6 +2808,15 @@ static int rewrite_runtime_should_patch_site(
     if (site->planned.site.site_class != KBOX_REWRITE_SITE_WRAPPER)
         return 0;
 
+    /* Cancel-style BL sites bypass __syscall_cancel and therefore skip
+     * pthread cancellation point checks. Only safe when the program is
+     * single-threaded.
+     */
+    if (site->wrapper_kind == KBOX_REWRITE_WRAPPER_CANDIDATE_SYSCALL_CANCEL &&
+        !runtime->cancel_promote_allowed) {
+        return 0;
+    }
+
     host_nrs = runtime->ctx->host_nrs;
     if (!host_nrs)
         return 0;
@@ -2465,19 +2840,6 @@ static int rewrite_runtime_should_patch_site(
 
     return 0;
 }
-
-/* Check whether an ELF binary contains fork-family syscall sites.
- *
- * Scans 8-byte wrapper sites (mov $NR, %eax; syscall; ret) for
- * fork/clone/vfork/clone3 syscall numbers. Also checks aarch64
- * SVC sites preceded by MOV x8, #NR for the same.
- *
- * Returns 1 if any fork-family site found, 0 if none, -1 on error.
- */
-struct fork_scan_ctx {
-    const struct kbox_host_nrs *host_nrs;
-    int found;
-};
 
 struct wrapper_nr_scan_ctx {
     enum kbox_rewrite_arch arch;
@@ -2573,9 +2935,10 @@ static int wrapper_nr_scan_segment(const struct kbox_elf_exec_segment *seg,
                 continue;
 
             /* Detect the static-musl __syscall_cancel caller pattern:
-             * mov x6,#nr ... b/bl __syscall_cancel
-             * This is a selector signal only for now, so a conservative
-             * short-range scan is sufficient.
+             * movz x6, #nr ... bl __syscall_cancel
+             * BL only (tail-call B is not a cancel wrapper), plus
+             * validate that the BL target is a function containing the
+             * __syscall_cancel epilogue signature.
              */
             for (j = i + 4; j + 3 < seg->file_size && j <= i + 32; j += 4) {
                 uint32_t next = (uint32_t) segment_bytes[j] |
@@ -2583,8 +2946,10 @@ static int wrapper_nr_scan_segment(const struct kbox_elf_exec_segment *seg,
                                 ((uint32_t) segment_bytes[j + 2] << 16) |
                                 ((uint32_t) segment_bytes[j + 3] << 24);
 
-                if ((next & 0xfc000000u) == 0x14000000u ||
-                    (next & 0xfc000000u) == 0x94000000u) {
+                if ((next & 0xfc000000u) == 0x94000000u) {
+                    if (!aarch64_bl_is_cancel_wrapper(segment_bytes,
+                                                      seg->file_size, j))
+                        break;
                     if (wrapper_nr_in_allowlist(ctx, nr)) {
                         ctx->found = 1;
                         return 0;
@@ -2728,8 +3093,10 @@ static int wrapper_family_scan_segment(const struct kbox_elf_exec_segment *seg,
                                 ((uint32_t) segment_bytes[j + 2] << 16) |
                                 ((uint32_t) segment_bytes[j + 3] << 24);
 
-                if ((next & 0xfc000000u) == 0x14000000u ||
-                    (next & 0xfc000000u) == 0x94000000u) {
+                if ((next & 0xfc000000u) == 0x94000000u) {
+                    if (!aarch64_bl_is_cancel_wrapper(segment_bytes,
+                                                      seg->file_size, j))
+                        break;
                     ctx->mask |= wrapper_family_mask_for_nr(ctx->host_nrs, nr);
                     break;
                 }
@@ -2822,9 +3189,12 @@ static int wrapper_candidate_scan_segment(
                                 ((uint32_t) segment_bytes[j + 2] << 16) |
                                 ((uint32_t) segment_bytes[j + 3] << 24);
 
-                if ((next & 0xfc000000u) == 0x14000000u ||
-                    (next & 0xfc000000u) == 0x94000000u) {
-                    int rc = emit_wrapper_candidate(
+                if ((next & 0xfc000000u) == 0x94000000u) {
+                    int rc;
+                    if (!aarch64_bl_is_cancel_wrapper(segment_bytes,
+                                                      seg->file_size, j))
+                        break;
+                    rc = emit_wrapper_candidate(
                         ctx, KBOX_REWRITE_WRAPPER_CANDIDATE_SYSCALL_CANCEL,
                         seg->file_offset + j, seg->vaddr + j, nr);
                     if (rc != 0)
@@ -2868,62 +3238,49 @@ static int wrapper_candidate_scan_segment(
     return 0;
 }
 
-static int fork_scan_cb(const struct kbox_rewrite_site *site, void *opaque)
-{
-    struct fork_scan_ctx *ctx = opaque;
-    const struct kbox_host_nrs *h = ctx->host_nrs;
-
-    if (ctx->found)
-        return 0; /* Already found one, just skip the rest. */
-
-    /* x86_64 8-byte wrapper: extract syscall number from MOV imm32. */
-    if (site->width == X86_64_WRAPPER_SITE_LEN && site->original[0] == 0xb8) {
-        int nr = (int) x86_64_wrapper_syscall_nr(site->original);
-        if (nr == h->clone || nr == h->fork || nr == h->vfork ||
-            nr == h->clone3) {
-            ctx->found = 1;
-        }
-        return 0;
-    }
-
-    /* aarch64 SVC: can't determine syscall number from the SVC site alone
-     * (it's in x8, set by a prior MOV). We conservatively do NOT flag
-     * aarch64 sites here; the caller uses additional heuristics.
-     */
-
-    return 0;
-}
-
 int kbox_rewrite_has_fork_sites(const unsigned char *buf,
                                 size_t buf_len,
                                 const struct kbox_host_nrs *host_nrs)
 {
-    struct fork_scan_ctx ctx;
     struct kbox_rewrite_report report;
 
     if (!buf || !host_nrs)
         return -1;
-    ctx.host_nrs = host_nrs;
-    ctx.found = 0;
-    if (kbox_rewrite_visit_elf_sites(buf, buf_len, fork_scan_cb, &ctx,
-                                     &report) < 0)
+
+    const uint64_t fork_nrs[] = {
+        (uint64_t) host_nrs->clone,
+        (uint64_t) host_nrs->fork,
+        (uint64_t) host_nrs->vfork,
+        (uint64_t) host_nrs->clone3,
+    };
+
+    if (kbox_rewrite_analyze_elf(buf, buf_len, &report) < 0)
         return -1;
-    return ctx.found;
+    return kbox_rewrite_has_wrapper_syscalls(
+        buf, buf_len, report.arch, fork_nrs,
+        sizeof(fork_nrs) / sizeof(fork_nrs[0]));
 }
 
 int kbox_rewrite_has_fork_sites_memfd(int fd,
                                       const struct kbox_host_nrs *host_nrs)
 {
-    struct fork_scan_ctx ctx;
-    struct kbox_rewrite_report report;
-
     if (fd < 0 || !host_nrs)
         return -1;
-    ctx.host_nrs = host_nrs;
-    ctx.found = 0;
-    if (kbox_rewrite_visit_memfd_sites(fd, fork_scan_cb, &ctx, &report) < 0)
-        return -1;
-    return ctx.found;
+
+    const uint64_t fork_nrs[] = {
+        (uint64_t) host_nrs->clone,
+        (uint64_t) host_nrs->fork,
+        (uint64_t) host_nrs->vfork,
+        (uint64_t) host_nrs->clone3,
+    };
+
+    /* kbox_rewrite_has_wrapper_syscalls_memfd() calls
+     * kbox_rewrite_analyze_memfd() internally to resolve the arch
+     * and validate the ELF header; no need to duplicate that work
+     * here.
+     */
+    return kbox_rewrite_has_wrapper_syscalls_memfd(
+        fd, fork_nrs, sizeof(fork_nrs) / sizeof(fork_nrs[0]));
 }
 
 int kbox_rewrite_has_wrapper_syscalls(const unsigned char *buf,
@@ -3572,6 +3929,157 @@ static int alloc_x86_64_trampoline_region(
 #endif
 }
 
+static int collect_exec_region_sites(enum kbox_rewrite_arch arch,
+                                     uint64_t addr,
+                                     size_t len,
+                                     struct site_array *array)
+{
+    unsigned char *buf;
+    size_t chunk_size;
+    size_t overlap;
+    size_t offset = 0;
+
+    if (!array || len == 0)
+        return -1;
+
+    if (arch == KBOX_REWRITE_ARCH_X86_64) {
+        chunk_size = KBOX_REWRITE_SCAN_CHUNK;
+        overlap = 1;
+    } else if (arch == KBOX_REWRITE_ARCH_AARCH64) {
+        chunk_size = KBOX_REWRITE_SCAN_CHUNK;
+        overlap = 0;
+    } else {
+        errno = ENOTSUP;
+        return -1;
+    }
+    if ((chunk_size & 3u) != 0) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    buf = malloc(chunk_size + overlap);
+    if (!buf)
+        return -1;
+
+    while (offset < len) {
+        size_t to_read = len - offset;
+        int rc;
+
+        if (to_read > chunk_size)
+            to_read = chunk_size;
+        rc = kbox_current_read(addr + offset, buf, to_read);
+        if (rc < 0) {
+            free(buf);
+            errno = -rc;
+            return -1;
+        }
+
+        if (arch == KBOX_REWRITE_ARCH_X86_64) {
+            for (size_t i = 0; i + 1 < to_read; i++) {
+                struct kbox_rewrite_site site;
+
+                if (buf[i] != 0x0f ||
+                    (buf[i + 1] != 0x05 && buf[i + 1] != 0x34)) {
+                    continue;
+                }
+                memset(&site, 0, sizeof(site));
+                site.file_offset = offset + i;
+                site.vaddr = addr + offset + i;
+                site.segment_vaddr = addr;
+                site.segment_mem_size = len;
+                site.width = 2;
+                site.original[0] = buf[i];
+                site.original[1] = buf[i + 1];
+                site.site_class = KBOX_REWRITE_SITE_UNKNOWN;
+                if (collect_sites_array_cb(&site, array) < 0) {
+                    free(buf);
+                    return -1;
+                }
+                free(buf);
+                return 0;
+            }
+        } else {
+            for (size_t i = 0; i + 3 < to_read; i += 4) {
+                struct kbox_rewrite_site site;
+
+                if (buf[i] != 0x01 || buf[i + 1] != 0x00 ||
+                    buf[i + 2] != 0x00 || buf[i + 3] != 0xd4) {
+                    continue;
+                }
+                memset(&site, 0, sizeof(site));
+                site.file_offset = offset + i;
+                site.vaddr = addr + offset + i;
+                site.segment_vaddr = addr;
+                site.segment_mem_size = len;
+                site.width = 4;
+                memcpy(site.original, buf + i, 4);
+                site.site_class = KBOX_REWRITE_SITE_UNKNOWN;
+                if (collect_sites_array_cb(&site, array) < 0) {
+                    free(buf);
+                    return -1;
+                }
+                free(buf);
+                return 0;
+            }
+        }
+
+        if (to_read == len - offset)
+            break;
+        offset += to_read - overlap;
+    }
+
+    free(buf);
+    return 0;
+}
+
+int kbox_rewrite_runtime_promote_exec_region(
+    struct kbox_rewrite_runtime *runtime,
+    uint64_t addr,
+    uint64_t len)
+{
+    struct site_array sites;
+    enum kbox_rewrite_arch arch = KBOX_REWRITE_ARCH_UNKNOWN;
+    int rc = -1;
+
+    if (len == 0)
+        return 0;
+    if (len > (uint64_t) SIZE_MAX) {
+        errno = EOVERFLOW;
+        return -1;
+    }
+    if (runtime && runtime->installed)
+        arch = runtime->arch;
+    else {
+#if defined(__x86_64__)
+        arch = KBOX_REWRITE_ARCH_X86_64;
+#elif defined(__aarch64__)
+        arch = KBOX_REWRITE_ARCH_AARCH64;
+#endif
+    }
+    if (arch == KBOX_REWRITE_ARCH_UNKNOWN) {
+        errno = ENOTSUP;
+        return -1;
+    }
+    memset(&sites, 0, sizeof(sites));
+
+    if (collect_exec_region_sites(arch, addr, (size_t) len, &sites) < 0)
+        goto out;
+    if (runtime && runtime->ctx && runtime->ctx->verbose) {
+        fprintf(stderr,
+                "kbox: scan-on-X: addr=0x%llx len=%llu sites=%zu arch=%s\n",
+                (unsigned long long) addr, (unsigned long long) len,
+                sites.count, kbox_rewrite_arch_name(arch));
+    }
+    if (sites.count == 0)
+        rc = 0;
+    else
+        errno = EACCES;
+
+out:
+    free_site_array(&sites);
+    return rc;
+}
+
 static int collect_launch_sites(struct runtime_site_array *array,
                                 const struct kbox_loader_launch *launch,
                                 const struct kbox_host_nrs *host_nrs)
@@ -3735,6 +4243,40 @@ int kbox_rewrite_runtime_install(struct kbox_rewrite_runtime *runtime,
                     strerror(errno ? errno : EINVAL));
         }
         goto out;
+    }
+
+    /* Decide whether to promote cancel-style BL wrapper sites. The fast path
+     * bypasses __syscall_cancel and therefore skips pthread cancellation point
+     * checks; only safe when no fork-family syscall sites exist in the main
+     * binary (i.e. the program cannot create extra threads). The interpreter is
+     * not scanned because libc always contains fork wrappers regardless of
+     * whether the program uses them.
+     */
+    runtime->cancel_promote_allowed = 0;
+    if (runtime->arch == KBOX_REWRITE_ARCH_AARCH64 && launch->main_elf &&
+        launch->main_elf_len > 0 && ctx->host_nrs) {
+        /* Only static binaries are eligible. For dynamic binaries the
+         * fork-family syscall sites live in libc / libpthread (or an
+         * interpreter-loaded DSO) that the main-ELF scan cannot see, so
+         * the no-fork-sites signal does not prove single-threaded. Any
+         * dynamic binary may also dlopen a DSO that creates threads,
+         * which is undetectable at install time.
+         */
+        int is_static =
+            (launch->interp_elf == NULL && launch->interp_elf_len == 0);
+        int has_fork = 0;
+        if (is_static) {
+            has_fork = kbox_rewrite_has_fork_sites(
+                launch->main_elf, launch->main_elf_len, ctx->host_nrs);
+            if (has_fork == 0)
+                runtime->cancel_promote_allowed = 1;
+        }
+        if (ctx->verbose) {
+            fprintf(stderr,
+                    "kbox: rewrite install: cancel-promote allowed=%d "
+                    "(static=%d fork_sites=%d)\n",
+                    runtime->cancel_promote_allowed, is_static, has_fork);
+        }
     }
 
     if (ctx->verbose) {
@@ -4030,6 +4572,8 @@ int kbox_rewrite_runtime_install(struct kbox_rewrite_runtime *runtime,
     flush_exec_mappings(launch);
     restore_exec_mapping_prot(launch, prot);
     writable = 0;
+    if (kbox_rewrite_origin_map_seal(&runtime->origin_map) < 0)
+        goto out;
     store_active_rewrite_runtime(runtime);
     runtime->installed = 1;
     rc = 0;

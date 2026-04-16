@@ -7,7 +7,14 @@
 
 ifeq ($(FORCE_LKL_BUILD),1)
 
-$(LKL_LIB):
+# Always re-invoke the build script so the sub-make inside it can detect
+# source changes and perform an incremental rebuild of liblkl.a.
+# The FORCE sentinel (a phony with no recipe) makes Make treat $(LKL_LIB)
+# as always out of date, while the sub-make handles the actual incrementality.
+.PHONY: _lkl_force
+_lkl_force:
+
+$(LKL_LIB): _lkl_force
 	@echo "  BUILD   lkl (from source)"
 	$(Q)./scripts/build-lkl.sh $(ARCH)
 

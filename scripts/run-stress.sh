@@ -44,7 +44,7 @@ run_stress_test()
     printf "  %-40s " "$name"
 
     # Check if the test binary exists in the rootfs.
-    if ! "$KBOX" image -S "$ROOTFS" -- /bin/sh -c "test -x '$guest_path'" 2> /dev/null; then
+    if ! "$KBOX" -S "$ROOTFS" -- /bin/sh -c "test -x '$guest_path'" 2> /dev/null; then
         printf "${YELLOW}SKIP${NC} (not in rootfs)\n"
         SKIP=$((SKIP + 1))
         return
@@ -54,13 +54,13 @@ run_stress_test()
 
     RC=0
     if [ -n "$TIMEOUT_CMD" ]; then
-        if "$TIMEOUT_CMD" "$TIMEOUT" "$KBOX" image -S "$ROOTFS" -- "$guest_path" $guest_args > "$OUTPUT" 2>&1; then
+        if "$TIMEOUT_CMD" "$TIMEOUT" "$KBOX" -S "$ROOTFS" -- "$guest_path" $guest_args > "$OUTPUT" 2>&1; then
             RC=0
         else
             RC=$?
         fi
     else
-        if "$KBOX" image -S "$ROOTFS" -- "$guest_path" $guest_args > "$OUTPUT" 2>&1; then
+        if "$KBOX" -S "$ROOTFS" -- "$guest_path" $guest_args > "$OUTPUT" 2>&1; then
             RC=0
         else
             RC=$?

@@ -102,6 +102,17 @@ struct kbox_dispatch forward_socket(const struct kbox_syscall_request *req,
     }
     kbox_fd_table_set_host_fd(ctx->fd_table, vfd, host_fd);
 
+    /* The ADDFD-injected host_fd may land on a low FD number that already
+     * has a SHADOW_ONLY entry (from pipe tracking or inherited FD scan).
+     * Overwrite it so resolve_lkl_socket finds the LKL socket via the
+     * direct lookup path instead of returning the stale SHADOW_ONLY.
+     */
+    if (host_fd != vfd) {
+        struct kbox_fd_entry *low = fd_table_entry(ctx->fd_table, host_fd);
+        if (low && low->lkl_fd == KBOX_LKL_FD_SHADOW_ONLY)
+            kbox_fd_table_remove(ctx->fd_table, host_fd);
+    }
+
     {
         struct kbox_fd_entry *e = fd_table_entry(ctx->fd_table, vfd);
         if (e) {
@@ -122,8 +133,11 @@ struct kbox_dispatch forward_bind(const struct kbox_syscall_request *req,
     long fd = to_c_long_arg(kbox_syscall_request_arg(req, 0));
     long lkl_fd = resolve_lkl_socket(ctx, fd);
 
-    if (lkl_fd < 0)
+    if (lkl_fd == KBOX_LKL_FD_SHADOW_ONLY ||
+        (lkl_fd < 0 && !fd_should_deny_io(fd, lkl_fd)))
         return kbox_dispatch_continue();
+    if (lkl_fd < 0)
+        return kbox_dispatch_errno(EBADF);
 
     pid_t pid = kbox_syscall_request_pid(req);
     uint64_t addr_ptr = kbox_syscall_request_arg(req, 1);
@@ -154,7 +168,7 @@ struct kbox_dispatch forward_bind(const struct kbox_syscall_request *req,
 static long resolve_lkl_socket(struct kbox_supervisor_ctx *ctx, long fd)
 {
     long lkl_fd = kbox_fd_table_get_lkl(ctx->fd_table, fd);
-    if (lkl_fd >= 0)
+    if (lkl_fd >= 0 || lkl_fd == KBOX_LKL_FD_SHADOW_ONLY)
         return lkl_fd;
 
     /* Shadow socket: tracee uses the host_fd directly. */
@@ -171,8 +185,11 @@ struct kbox_dispatch forward_connect(const struct kbox_syscall_request *req,
     long fd = to_c_long_arg(kbox_syscall_request_arg(req, 0));
     long lkl_fd = resolve_lkl_socket(ctx, fd);
 
-    if (lkl_fd < 0)
+    if (lkl_fd == KBOX_LKL_FD_SHADOW_ONLY ||
+        (lkl_fd < 0 && !fd_should_deny_io(fd, lkl_fd)))
         return kbox_dispatch_continue();
+    if (lkl_fd < 0)
+        return kbox_dispatch_errno(EBADF);
 
     pid_t pid = kbox_syscall_request_pid(req);
     uint64_t addr_ptr = kbox_syscall_request_arg(req, 1);
@@ -208,8 +225,11 @@ struct kbox_dispatch forward_getsockopt(const struct kbox_syscall_request *req,
 {
     long fd = to_c_long_arg(kbox_syscall_request_arg(req, 0));
     long lkl_fd = resolve_lkl_socket(ctx, fd);
-    if (lkl_fd < 0)
+    if (lkl_fd == KBOX_LKL_FD_SHADOW_ONLY ||
+        (lkl_fd < 0 && !fd_should_deny_io(fd, lkl_fd)))
         return kbox_dispatch_continue();
+    if (lkl_fd < 0)
+        return kbox_dispatch_errno(EBADF);
 
     pid_t pid = kbox_syscall_request_pid(req);
     long level = to_c_long_arg(kbox_syscall_request_arg(req, 1));
@@ -254,8 +274,11 @@ struct kbox_dispatch forward_setsockopt(const struct kbox_syscall_request *req,
 {
     long fd = to_c_long_arg(kbox_syscall_request_arg(req, 0));
     long lkl_fd = resolve_lkl_socket(ctx, fd);
-    if (lkl_fd < 0)
+    if (lkl_fd == KBOX_LKL_FD_SHADOW_ONLY ||
+        (lkl_fd < 0 && !fd_should_deny_io(fd, lkl_fd)))
         return kbox_dispatch_continue();
+    if (lkl_fd < 0)
+        return kbox_dispatch_errno(EBADF);
 
     pid_t pid = kbox_syscall_request_pid(req);
     long level = to_c_long_arg(kbox_syscall_request_arg(req, 1));
@@ -290,8 +313,11 @@ static struct kbox_dispatch forward_sockaddr_query(
 {
     long fd = to_c_long_arg(kbox_syscall_request_arg(req, 0));
     long lkl_fd = resolve_lkl_socket(ctx, fd);
-    if (lkl_fd < 0)
+    if (lkl_fd == KBOX_LKL_FD_SHADOW_ONLY ||
+        (lkl_fd < 0 && !fd_should_deny_io(fd, lkl_fd)))
         return kbox_dispatch_continue();
+    if (lkl_fd < 0)
+        return kbox_dispatch_errno(EBADF);
 
     pid_t pid = kbox_syscall_request_pid(req);
     uint64_t addr_ptr = kbox_syscall_request_arg(req, 1);
@@ -343,8 +369,11 @@ struct kbox_dispatch forward_shutdown(const struct kbox_syscall_request *req,
 {
     long fd = to_c_long_arg(kbox_syscall_request_arg(req, 0));
     long lkl_fd = resolve_lkl_socket(ctx, fd);
-    if (lkl_fd < 0)
+    if (lkl_fd == KBOX_LKL_FD_SHADOW_ONLY ||
+        (lkl_fd < 0 && !fd_should_deny_io(fd, lkl_fd)))
         return kbox_dispatch_continue();
+    if (lkl_fd < 0)
+        return kbox_dispatch_errno(EBADF);
 
     long how = to_c_long_arg(kbox_syscall_request_arg(req, 1));
     long ret = kbox_lkl_shutdown(ctx->sysnrs, lkl_fd, how);
@@ -364,8 +393,11 @@ struct kbox_dispatch forward_sendto(const struct kbox_syscall_request *req,
 {
     long fd = to_c_long_arg(kbox_syscall_request_arg(req, 0));
     long lkl_fd = resolve_lkl_socket(ctx, fd);
-    if (lkl_fd < 0)
+    if (lkl_fd == KBOX_LKL_FD_SHADOW_ONLY ||
+        (lkl_fd < 0 && !fd_should_deny_io(fd, lkl_fd)))
         return kbox_dispatch_continue();
+    if (lkl_fd < 0)
+        return kbox_dispatch_errno(EBADF);
 
     uint64_t dest_ptr = kbox_syscall_request_arg(req, 4);
     if (dest_ptr == 0)
@@ -415,8 +447,11 @@ struct kbox_dispatch forward_recvfrom(const struct kbox_syscall_request *req,
 {
     long fd = to_c_long_arg(kbox_syscall_request_arg(req, 0));
     long lkl_fd = resolve_lkl_socket(ctx, fd);
-    if (lkl_fd < 0)
+    if (lkl_fd == KBOX_LKL_FD_SHADOW_ONLY ||
+        (lkl_fd < 0 && !fd_should_deny_io(fd, lkl_fd)))
         return kbox_dispatch_continue();
+    if (lkl_fd < 0)
+        return kbox_dispatch_errno(EBADF);
 
     uint64_t src_ptr = kbox_syscall_request_arg(req, 4);
     if (src_ptr == 0)
@@ -484,8 +519,11 @@ struct kbox_dispatch forward_recvmsg(const struct kbox_syscall_request *req,
 {
     long fd = to_c_long_arg(kbox_syscall_request_arg(req, 0));
     long lkl_fd = resolve_lkl_socket(ctx, fd);
-    if (lkl_fd < 0)
+    if (lkl_fd == KBOX_LKL_FD_SHADOW_ONLY ||
+        (lkl_fd < 0 && !fd_should_deny_io(fd, lkl_fd)))
         return kbox_dispatch_continue();
+    if (lkl_fd < 0)
+        return kbox_dispatch_errno(EBADF);
 
     pid_t pid = kbox_syscall_request_pid(req);
     uint64_t msg_ptr = kbox_syscall_request_arg(req, 1);

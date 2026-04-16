@@ -387,26 +387,6 @@ extern int64_t kbox_syscall_trap_host_rt_sigprocmask_unblock(
     const uint64_t *mask,
     size_t sigset_size);
 #elif defined(__aarch64__)
-extern char kbox_syscall_trap_host_syscall_start[];
-extern char kbox_syscall_trap_host_syscall_ip_label[];
-extern char kbox_syscall_trap_host_syscall_end[];
-extern char kbox_syscall_trap_host_futex_wait_start[];
-extern char kbox_syscall_trap_host_futex_wait_end[];
-extern char kbox_syscall_trap_host_futex_wake_start[];
-extern char kbox_syscall_trap_host_futex_wake_end[];
-extern char kbox_syscall_trap_host_exit_group_start[];
-extern char kbox_syscall_trap_host_exit_group_end[];
-extern char kbox_syscall_trap_host_execve_start[];
-extern char kbox_syscall_trap_host_execve_end[];
-extern char kbox_syscall_trap_host_execveat_start[];
-extern char kbox_syscall_trap_host_execveat_end[];
-extern char kbox_syscall_trap_host_clone_start[];
-extern char kbox_syscall_trap_host_clone_end[];
-extern char kbox_syscall_trap_host_clone3_start[];
-extern char kbox_syscall_trap_host_clone3_end[];
-extern char kbox_syscall_trap_host_rt_sigprocmask_unblock_start[];
-extern char kbox_syscall_trap_host_rt_sigprocmask_unblock_end[];
-
 __asm__(
     ".text\n"
     ".globl kbox_syscall_trap_host_syscall6\n"
@@ -549,6 +529,172 @@ __asm__(
     "ret\n"
     ".size kbox_syscall_trap_host_rt_sigprocmask_unblock, "
     ".-kbox_syscall_trap_host_rt_sigprocmask_unblock\n");
+#elif (defined(__riscv) && __riscv_xlen == 64)
+__asm__(
+    ".text\n"
+    ".globl kbox_syscall_trap_host_syscall6\n"
+    ".type kbox_syscall_trap_host_syscall6,%function\n"
+    ".globl kbox_syscall_trap_host_syscall_start\n"
+    "kbox_syscall_trap_host_syscall_start:\n"
+    "kbox_syscall_trap_host_syscall6:\n"
+    "mv a7, a0\n"
+    "mv a0, a1\n"
+    "mv a1, a2\n"
+    "mv a2, a3\n"
+    "mv a3, a4\n"
+    "mv a4, a5\n"
+    "mv a5, a6\n"
+    ".globl kbox_syscall_trap_host_syscall_ip_label\n"
+    "kbox_syscall_trap_host_syscall_ip_label:\n"
+    "ecall\n"
+    ".globl kbox_syscall_trap_host_syscall_end\n"
+    "kbox_syscall_trap_host_syscall_end:\n"
+    "ret\n"
+    ".size kbox_syscall_trap_host_syscall6, "
+    ".-kbox_syscall_trap_host_syscall6\n"
+
+    ".globl kbox_syscall_trap_host_futex_wait_private\n"
+    ".type kbox_syscall_trap_host_futex_wait_private,%function\n"
+    ".globl kbox_syscall_trap_host_futex_wait_start\n"
+    "kbox_syscall_trap_host_futex_wait_private:\n"
+    "kbox_syscall_trap_host_futex_wait_start:"
+    "li a7, " XSTR(__NR_futex) "\n"
+    "mv a2, a1\n"
+    "li a1, " XSTR(FUTEX_WAIT_PRIVATE) "\n"
+    "li a3, 0\n"
+    "li a4, 0\n"
+    "li a5, 0\n"
+    "ecall\n"
+    ".globl kbox_syscall_trap_host_futex_wait_end\n"
+    "kbox_syscall_trap_host_futex_wait_end:\n"
+    "ret\n"
+    ".size kbox_syscall_trap_host_futex_wait_private, "
+    ".-kbox_syscall_trap_host_futex_wait_private\n"
+
+    ".globl kbox_syscall_trap_host_futex_wake_private\n"
+    ".type kbox_syscall_trap_host_futex_wake_private,%function\n"
+    ".globl kbox_syscall_trap_host_futex_wake_start\n"
+    "kbox_syscall_trap_host_futex_wake_start:\n"
+    "kbox_syscall_trap_host_futex_wake_private:\n"
+    "li a7, " XSTR(__NR_futex) "\n"
+    "mv a2, a1\n"
+    "li a1, " XSTR(FUTEX_WAKE_PRIVATE) "\n"
+    "li a3, 0\n"
+    "li a4, 0\n"
+    "li a5, 0\n"
+    "ecall\n"
+    ".globl kbox_syscall_trap_host_futex_wake_end\n"
+    "kbox_syscall_trap_host_futex_wake_end:\n"
+    "ret\n"
+    ".size kbox_syscall_trap_host_futex_wake_private, "
+    ".-kbox_syscall_trap_host_futex_wake_private\n"
+
+    ".globl kbox_syscall_trap_host_exit_group_now\n"
+    ".type kbox_syscall_trap_host_exit_group_now,%function\n"
+    ".globl kbox_syscall_trap_host_exit_group_start\n"
+    "kbox_syscall_trap_host_exit_group_start:\n"
+    "kbox_syscall_trap_host_exit_group_now:\n"
+    "li a7, " XSTR(__NR_exit_group) "\n"
+    "ecall\n"
+    ".globl kbox_syscall_trap_host_exit_group_end\n"
+    "kbox_syscall_trap_host_exit_group_end:\n"
+    "ret\n"
+    ".size kbox_syscall_trap_host_exit_group_now, "
+    ".-kbox_syscall_trap_host_exit_group_now\n"
+
+    ".globl kbox_syscall_trap_host_execve_now\n"
+    ".type kbox_syscall_trap_host_execve_now,%function\n"
+    ".globl kbox_syscall_trap_host_execve_start\n"
+    "kbox_syscall_trap_host_execve_start:\n"
+    "kbox_syscall_trap_host_execve_now:\n"
+    "li a7, " XSTR(__NR_execve) "\n"
+    "ecall\n"
+    ".globl kbox_syscall_trap_host_execve_end\n"
+    "kbox_syscall_trap_host_execve_end:\n"
+    "ret\n"
+    ".size kbox_syscall_trap_host_execve_now, "
+    ".-kbox_syscall_trap_host_execve_now\n"
+
+    ".globl kbox_syscall_trap_host_execveat_now\n"
+    ".type kbox_syscall_trap_host_execveat_now,%function\n"
+    ".globl kbox_syscall_trap_host_execveat_start\n"
+    "kbox_syscall_trap_host_execveat_start:\n"
+    "kbox_syscall_trap_host_execveat_now:\n"
+    "li a7, " XSTR(__NR_execveat) "\n"
+    "ecall\n"
+    ".globl kbox_syscall_trap_host_execveat_end\n"
+    "kbox_syscall_trap_host_execveat_end:\n"
+    "ret\n"
+    ".size kbox_syscall_trap_host_execveat_now, "
+    ".-kbox_syscall_trap_host_execveat_now\n"
+
+    ".globl kbox_syscall_trap_host_clone_now\n"
+    ".type kbox_syscall_trap_host_clone_now,%function\n"
+    ".globl kbox_syscall_trap_host_clone_start\n"
+    "kbox_syscall_trap_host_clone_start:\n"
+    "kbox_syscall_trap_host_clone_now:\n"
+    "li a7, " XSTR(__NR_clone) "\n"
+    "ecall\n"
+    ".globl kbox_syscall_trap_host_clone_end\n"
+    "kbox_syscall_trap_host_clone_end:\n"
+    "ret\n"
+    ".size kbox_syscall_trap_host_clone_now, "
+    ".-kbox_syscall_trap_host_clone_now\n"
+
+    ".globl kbox_syscall_trap_host_clone3_now\n"
+    ".type kbox_syscall_trap_host_clone3_now,%function\n"
+    ".globl kbox_syscall_trap_host_clone3_start\n"
+    "kbox_syscall_trap_host_clone3_start:\n"
+    "kbox_syscall_trap_host_clone3_now:\n"
+    "li a7, " XSTR(__NR_clone3) "\n"
+    "ecall\n"
+    ".globl kbox_syscall_trap_host_clone3_end\n"
+    "kbox_syscall_trap_host_clone3_end:\n"
+    "ret\n"
+    ".size kbox_syscall_trap_host_clone3_now, "
+    ".-kbox_syscall_trap_host_clone3_now\n"
+
+    ".globl kbox_syscall_trap_host_rt_sigprocmask_unblock\n"
+    ".type kbox_syscall_trap_host_rt_sigprocmask_unblock,%function\n"
+    ".globl kbox_syscall_trap_host_rt_sigprocmask_unblock_start\n"
+    "kbox_syscall_trap_host_rt_sigprocmask_unblock_start:\n"
+    "kbox_syscall_trap_host_rt_sigprocmask_unblock:\n"
+    "li a7, " XSTR(__NR_rt_sigprocmask) "\n"
+    "mv a3, a1\n"
+    "mv a1, a0\n"
+    "li a0, " XSTR(SIG_UNBLOCK) "\n"
+    "li a2, 0\n"
+    "li a4, 0\n"
+    "li a5, 0\n"
+    "ecall\n"
+    ".globl kbox_syscall_trap_host_rt_sigprocmask_unblock_end\n"
+    "kbox_syscall_trap_host_rt_sigprocmask_unblock_end:\n"
+    "ret\n"
+    ".size kbox_syscall_trap_host_rt_sigprocmask_unblock, "
+    ".-kbox_syscall_trap_host_rt_sigprocmask_unblock\n");
+#endif
+
+#if defined(__aarch64__) || (defined(__riscv) && __riscv_xlen == 64)
+extern char kbox_syscall_trap_host_syscall_start[];
+extern char kbox_syscall_trap_host_syscall_ip_label[];
+extern char kbox_syscall_trap_host_syscall_end[];
+extern char kbox_syscall_trap_host_futex_wait_start[];
+extern char kbox_syscall_trap_host_futex_wait_end[];
+extern char kbox_syscall_trap_host_futex_wake_start[];
+extern char kbox_syscall_trap_host_futex_wake_end[];
+extern char kbox_syscall_trap_host_exit_group_start[];
+extern char kbox_syscall_trap_host_exit_group_end[];
+extern char kbox_syscall_trap_host_execve_start[];
+extern char kbox_syscall_trap_host_execve_end[];
+extern char kbox_syscall_trap_host_execveat_start[];
+extern char kbox_syscall_trap_host_execveat_end[];
+extern char kbox_syscall_trap_host_clone_start[];
+extern char kbox_syscall_trap_host_clone_end[];
+extern char kbox_syscall_trap_host_clone3_start[];
+extern char kbox_syscall_trap_host_clone3_end[];
+extern char kbox_syscall_trap_host_rt_sigprocmask_unblock_start[];
+extern char kbox_syscall_trap_host_rt_sigprocmask_unblock_end[];
+
 
 extern int64_t kbox_syscall_trap_host_syscall6(long nr,
                                                uint64_t a0,
@@ -734,7 +880,8 @@ int kbox_syscall_trap_sigset_blocks_reserved(const void *mask, size_t len)
 
 uintptr_t kbox_syscall_trap_host_syscall_ip(void)
 {
-#if defined(__x86_64__) || defined(__aarch64__)
+#if defined(__x86_64__) || defined(__aarch64__) || \
+    (defined(__riscv) && __riscv_xlen == 64)
     return (uintptr_t) kbox_syscall_trap_host_syscall_ip_label;
 #else
     return 0;
@@ -743,7 +890,8 @@ uintptr_t kbox_syscall_trap_host_syscall_ip(void)
 
 int kbox_syscall_trap_host_syscall_range(struct kbox_syscall_trap_ip_range *out)
 {
-#if defined(__x86_64__) || defined(__aarch64__)
+#if defined(__x86_64__) || defined(__aarch64__) || \
+    (defined(__riscv) && __riscv_xlen == 64)
     uintptr_t start = (uintptr_t) kbox_syscall_trap_host_syscall_start;
     uintptr_t end = (uintptr_t) kbox_syscall_trap_host_syscall_end;
 
@@ -838,7 +986,7 @@ int kbox_syscall_trap_internal_ip_ranges(struct kbox_syscall_trap_ip_range *out,
             (uintptr_t) kbox_syscall_trap_host_rt_sigprocmask_unblock_start,
             (uintptr_t) kbox_syscall_trap_host_rt_sigprocmask_unblock_end) < 0)
         return -1;
-#elif defined(__aarch64__)
+#elif defined(__aarch64__) || (defined(__riscv) && __riscv_xlen == 64)
     if (append_ip_range(out, cap, &n,
                         (uintptr_t) kbox_syscall_trap_host_futex_wait_start,
                         (uintptr_t) kbox_syscall_trap_host_futex_wait_end) < 0)
@@ -914,6 +1062,17 @@ int kbox_syscall_regs_from_sigsys(const siginfo_t *info,
     out->args[3] = (uint64_t) uc->uc_mcontext.regs[3];
     out->args[4] = (uint64_t) uc->uc_mcontext.regs[4];
     out->args[5] = (uint64_t) uc->uc_mcontext.regs[5];
+    return 0;
+#elif defined(__riscv) && __riscv_xlen == 64
+    out->nr = (info->si_syscall != 0) ? info->si_syscall
+                                      : (int) uc->uc_mcontext.__gregs[17];
+    out->instruction_pointer = (uint64_t) uc->uc_mcontext.__gregs[0];
+    out->args[0] = (uint64_t) uc->uc_mcontext.__gregs[10];
+    out->args[1] = (uint64_t) uc->uc_mcontext.__gregs[11];
+    out->args[2] = (uint64_t) uc->uc_mcontext.__gregs[12];
+    out->args[3] = (uint64_t) uc->uc_mcontext.__gregs[13];
+    out->args[4] = (uint64_t) uc->uc_mcontext.__gregs[14];
+    out->args[5] = (uint64_t) uc->uc_mcontext.__gregs[15];
     return 0;
 #else
     (void) uc;
@@ -1390,6 +1549,43 @@ static int64_t host_syscall(const ucontext_t *uc)
         (uint64_t) uc->uc_mcontext.regs[1], (uint64_t) uc->uc_mcontext.regs[2],
         (uint64_t) uc->uc_mcontext.regs[3], (uint64_t) uc->uc_mcontext.regs[4],
         (uint64_t) uc->uc_mcontext.regs[5]);
+#elif defined(__riscv) && (__riscv_xlen == 64)
+    long nr = (long) uc->uc_mcontext.__gregs[17];
+
+    if (nr == __NR_exit || nr == __NR_exit_group)
+        return kbox_syscall_trap_host_exit_group_now(
+            (int) uc->uc_mcontext.__gregs[10]);
+    if (nr == __NR_execve)
+        return kbox_syscall_trap_host_execve_now(
+            (const char *) (uintptr_t) uc->uc_mcontext.__gregs[10],
+            (char *const *) (uintptr_t) uc->uc_mcontext.__gregs[11],
+            (char *const *) (uintptr_t) uc->uc_mcontext.__gregs[12]);
+    if (nr == __NR_execveat)
+        return kbox_syscall_trap_host_execveat_now(
+            (int) uc->uc_mcontext.__gregs[10],
+            (const char *) (uintptr_t) uc->uc_mcontext.__gregs[11],
+            (char *const *) (uintptr_t) uc->uc_mcontext.__gregs[12],
+            (char *const *) (uintptr_t) uc->uc_mcontext.__gregs[13],
+            (int) uc->uc_mcontext.__gregs[14]);
+    if (nr == __NR_clone)
+        return kbox_syscall_trap_host_clone_now(
+            (uint64_t) uc->uc_mcontext.__gregs[10],
+            (uint64_t) uc->uc_mcontext.__gregs[11],
+            (uint64_t) uc->uc_mcontext.__gregs[12],
+            (uint64_t) uc->uc_mcontext.__gregs[13],
+            (uint64_t) uc->uc_mcontext.__gregs[14]);
+    if (nr == __NR_clone3)
+        return kbox_syscall_trap_host_clone3_now(
+            (const void *) (uintptr_t) uc->uc_mcontext.__gregs[10],
+            (size_t) uc->uc_mcontext.__gregs[11]);
+
+    return kbox_syscall_trap_host_syscall6(
+        nr, (uint64_t) uc->uc_mcontext.__gregs[10],
+        (uint64_t) uc->uc_mcontext.__gregs[11],
+        (uint64_t) uc->uc_mcontext.__gregs[12],
+        (uint64_t) uc->uc_mcontext.__gregs[13],
+        (uint64_t) uc->uc_mcontext.__gregs[14],
+        (uint64_t) uc->uc_mcontext.__gregs[15]);
 #else
     (void) uc;
     return -ENOSYS;
@@ -1424,6 +1620,9 @@ int kbox_syscall_result_to_sigsys(void *ucontext_ptr,
     return 0;
 #elif defined(__aarch64__)
     uc->uc_mcontext.regs[0] = (uint64_t) ret;
+    return 0;
+#elif defined(__riscv) && (__riscv_xlen == 64)
+    uc->uc_mcontext.__gregs[10] = (uint64_t) ret;
     return 0;
 #else
     return -1;

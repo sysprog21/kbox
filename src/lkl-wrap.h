@@ -21,6 +21,7 @@ extern struct lkl_dev_blk_ops lkl_dev_blk_ops;
 
 int lkl_init(void *ops);
 int lkl_start_kernel(const char *fmt, ...);
+long lkl_sys_halt(void);
 void lkl_cleanup(void);
 
 const char *lkl_strerror(int err);
@@ -44,6 +45,7 @@ long lkl_syscall6(long nr,
                   long a6);
 const char *kbox_err_text(long code);
 int kbox_boot_kernel(const char *cmdline);
+void kbox_halt_kernel(void);
 
 long kbox_lkl_mount(const struct kbox_sysnrs *s,
                     const char *src,

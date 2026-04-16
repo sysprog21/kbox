@@ -96,6 +96,8 @@ struct kbox_rewrite_origin_map {
     struct kbox_rewrite_origin_entry *entries;
     size_t count;
     size_t cap;
+    size_t mapping_size;
+    int sealed;
 };
 
 struct kbox_rewrite_runtime {
@@ -106,6 +108,12 @@ struct kbox_rewrite_runtime {
         trampoline_regions[KBOX_LOADER_MAX_MAPPINGS];
     size_t trampoline_region_count;
     int installed;
+    /* Set during install if the main binary contains no fork-family syscall
+     * sites. Gates promotion of cancel-style BL wrapper sites: bypassing
+     * __syscall_cancel skips pthread cancellation point checks, which is only
+     * safe when the program is single-threaded.
+     */
+    int cancel_promote_allowed;
 };
 
 enum kbox_rewrite_wrapper_family_mask {
@@ -209,6 +217,7 @@ int kbox_rewrite_origin_map_build_elf(struct kbox_rewrite_origin_map *map,
 int kbox_rewrite_origin_map_build_memfd(struct kbox_rewrite_origin_map *map,
                                         int fd,
                                         struct kbox_rewrite_report *report);
+int kbox_rewrite_origin_map_seal(struct kbox_rewrite_origin_map *map);
 int kbox_rewrite_encode_patch(const struct kbox_rewrite_site *site,
                               uint64_t trampoline_addr,
                               struct kbox_rewrite_patch *patch);
@@ -301,8 +310,13 @@ int kbox_rewrite_apply_memfd_phase1_path_candidates(
     size_t *applied_count,
     struct kbox_rewrite_report *report);
 void kbox_rewrite_runtime_reset(struct kbox_rewrite_runtime *runtime);
+struct kbox_rewrite_runtime *kbox_rewrite_runtime_active(void);
 int kbox_rewrite_runtime_install(struct kbox_rewrite_runtime *runtime,
                                  struct kbox_supervisor_ctx *ctx,
                                  struct kbox_loader_launch *launch);
+int kbox_rewrite_runtime_promote_exec_region(
+    struct kbox_rewrite_runtime *runtime,
+    uint64_t addr,
+    uint64_t len);
 
 #endif /* KBOX_REWRITE_H */

@@ -6,6 +6,7 @@ TEST_DIR   = tests/unit
 TEST_SRCS  = $(TEST_DIR)/test-runner.c \
              $(TEST_DIR)/test-fd-table.c \
              $(TEST_DIR)/test-path.c \
+             $(TEST_DIR)/test-mount.c \
              $(TEST_DIR)/test-cli.c \
              $(TEST_DIR)/test-identity.c \
              $(TEST_DIR)/test-syscall-nr.c \
@@ -30,6 +31,8 @@ endif
 # Unit tests link only the pure-computation sources (no LKL)
 TEST_SUPPORT_SRCS = $(SRC_DIR)/fd-table.c \
                     $(SRC_DIR)/path.c \
+                    $(SRC_DIR)/mount.c \
+                    $(TEST_DIR)/test-mount-stubs.c \
                     $(SRC_DIR)/cli.c \
                     $(SRC_DIR)/identity.c \
                     $(SRC_DIR)/syscall-nr.c \

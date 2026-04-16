@@ -34,6 +34,8 @@
 #define KBOX_AUDIT_ARCH_CURRENT 0xc000003eU
 #elif defined(__aarch64__)
 #define KBOX_AUDIT_ARCH_CURRENT 0xc00000b7U
+#elif defined(__riscv) && __riscv_xlen == 64
+#define KBOX_AUDIT_ARCH_CURRENT 0xc00000f3U
 #else
 #error "unsupported architecture"
 #endif

@@ -354,7 +354,7 @@ const struct kbox_host_nrs HOST_NRS_X86_64 = {
     .readlink = 89,
 };
 
-const struct kbox_host_nrs HOST_NRS_AARCH64 = {
+const struct kbox_host_nrs HOST_NRS_GENERIC = {
     .openat = 56,
     .openat2 = 437,
     .open = -1,

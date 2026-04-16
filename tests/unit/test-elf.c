@@ -576,6 +576,92 @@ static void test_elf_build_load_plan_rejects_filesz_gt_memsz(void)
     ASSERT_EQ(kbox_build_elf_load_plan(elf, sizeof(elf), 0x1000, &plan), -1);
 }
 
+/* PT_INTERP segment extends beyond the ELF buffer (p_offset + p_filesz >
+ * buf_len). */
+static void test_elf_interp_rejects_segment_overflow(void)
+{
+    unsigned char elf[256];
+    char out[256];
+
+    init_elf64(elf, sizeof(elf), ET_EXEC, 0x3e, 0, 64, 1);
+    /* p_offset=200, p_filesz=100: 200+100=300 > 256 */
+    set_phdr(elf, 0, PT_INTERP, 0, 200, 0, 100, 100, 1);
+
+    ASSERT_EQ(kbox_parse_elf_interp(elf, sizeof(elf), out, sizeof(out)), -1);
+}
+
+/* PT_INTERP string missing NUL terminator within the segment. */
+static void test_elf_interp_rejects_no_nul(void)
+{
+    unsigned char elf[256];
+    char out[256];
+
+    init_elf64(elf, sizeof(elf), ET_EXEC, 0x3e, 0, 64, 1);
+    /* Place 4-byte PT_INTERP at offset 200, no NUL byte. */
+    set_phdr(elf, 0, PT_INTERP, 0, 200, 0, 4, 4, 1);
+    elf[200] = '/';
+    elf[201] = 'l';
+    elf[202] = 'd';
+    elf[203] = 'x'; /* no NUL */
+
+    ASSERT_EQ(kbox_parse_elf_interp(elf, sizeof(elf), out, sizeof(out)), -1);
+}
+
+/* PT_INTERP path too large for caller's output buffer. */
+static void test_elf_interp_rejects_path_too_large(void)
+{
+    unsigned char elf[256];
+    char out[4]; /* too small for "/ld.so" */
+
+    init_elf64(elf, sizeof(elf), ET_EXEC, 0x3e, 0, 64, 1);
+    set_phdr(elf, 0, PT_INTERP, 0, 200, 0, 7, 7, 1);
+    memcpy(elf + 200, "/ld.so", 7); /* 6 chars + NUL = 7 bytes */
+
+    ASSERT_EQ(kbox_parse_elf_interp(elf, sizeof(elf), out, sizeof(out)), -1);
+}
+
+/* PT_INTERP with empty string (just NUL) is rejected as malformed. */
+static void test_elf_interp_rejects_empty_path(void)
+{
+    unsigned char elf[256];
+    char out[256];
+
+    init_elf64(elf, sizeof(elf), ET_EXEC, 0x3e, 0, 64, 1);
+    set_phdr(elf, 0, PT_INTERP, 0, 200, 0, 1, 1, 1);
+    elf[200] = '\0'; /* just a NUL byte */
+
+    ASSERT_EQ(kbox_parse_elf_interp(elf, sizeof(elf), out, sizeof(out)), -1);
+}
+
+/* PT_INTERP with zero p_filesz is rejected. */
+static void test_elf_interp_rejects_zero_filesz(void)
+{
+    unsigned char elf[256];
+    char out[256];
+
+    init_elf64(elf, sizeof(elf), ET_EXEC, 0x3e, 0, 64, 1);
+    set_phdr(elf, 0, PT_INTERP, 0, 200, 0, 0, 0, 1);
+
+    ASSERT_EQ(kbox_parse_elf_interp(elf, sizeof(elf), out, sizeof(out)), -1);
+}
+
+/* PT_INTERP with p_offset + p_filesz integer overflow is rejected.
+ * p_offset is valid (within buf_len) but p_filesz is huge, causing
+ * the sum to wrap around UINT64.  This exercises the __builtin_add_overflow
+ * guard rather than the simpler p_offset >= buf_len check.
+ */
+static void test_elf_interp_rejects_offset_filesz_overflow(void)
+{
+    unsigned char elf[256];
+    char out[256];
+
+    init_elf64(elf, sizeof(elf), ET_EXEC, 0x3e, 0, 64, 1);
+    /* p_offset=200 (valid), p_filesz=UINT64_MAX: 200 + UINT64_MAX wraps. */
+    set_phdr(elf, 0, PT_INTERP, 0, 200, 0, UINT64_MAX, UINT64_MAX, 1);
+
+    ASSERT_EQ(kbox_parse_elf_interp(elf, sizeof(elf), out, sizeof(out)), -1);
+}
+
 void test_elf_init(void)
 {
     TEST_REGISTER(test_elf_parse_interp);
@@ -591,4 +677,10 @@ void test_elf_init(void)
     TEST_REGISTER(test_elf_build_load_plan_pie_with_phdr_and_stack);
     TEST_REGISTER(test_elf_build_load_plan_honors_large_segment_align);
     TEST_REGISTER(test_elf_build_load_plan_rejects_filesz_gt_memsz);
+    TEST_REGISTER(test_elf_interp_rejects_segment_overflow);
+    TEST_REGISTER(test_elf_interp_rejects_no_nul);
+    TEST_REGISTER(test_elf_interp_rejects_path_too_large);
+    TEST_REGISTER(test_elf_interp_rejects_empty_path);
+    TEST_REGISTER(test_elf_interp_rejects_zero_filesz);
+    TEST_REGISTER(test_elf_interp_rejects_offset_filesz_overflow);
 }

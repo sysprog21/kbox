@@ -10,7 +10,7 @@
 
 #include <unistd.h>
 
-#define MAX_TESTS 256
+#define MAX_TESTS 512
 
 struct test_entry {
     const char *name;
@@ -91,6 +91,7 @@ void test_pass(void)
 /* Portable test suites (all hosts) */
 extern void test_fd_table_init(void);
 extern void test_path_init(void);
+extern void test_mount_init(void);
 extern void test_cli_init(void);
 extern void test_identity_init(void);
 extern void test_syscall_nr_init(void);
@@ -120,6 +121,7 @@ int main(int argc, char *argv[])
     /* Portable suites */
     test_fd_table_init();
     test_path_init();
+    test_mount_init();
     test_cli_init();
     test_identity_init();
     test_syscall_nr_init();

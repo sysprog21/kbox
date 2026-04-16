@@ -73,12 +73,24 @@ struct kbox_dispatch forward_mmap(const struct kbox_syscall_request *req,
     /* W^X enforcement for mmap in trap/rewrite mode. */
     if (request_uses_trap_signals(req)) {
         int prot = (int) kbox_syscall_request_arg(req, 2);
+        int mmap_flags = (int) kbox_syscall_request_arg(req, 3);
+        long mmap_fd = to_dirfd_arg(kbox_syscall_request_arg(req, 4));
         if ((prot & (PROT_WRITE | PROT_EXEC)) == (PROT_WRITE | PROT_EXEC)) {
             if (ctx->verbose)
                 fprintf(stderr,
                         "kbox: mmap denied: "
                         "W^X violation (prot=0x%x, pid=%u)\n",
                         prot, kbox_syscall_request_pid(req));
+            return kbox_dispatch_errno(EACCES);
+        }
+        if (mmap_fd != -1 && (mmap_flags & MAP_SHARED) != 0 &&
+            (prot & PROT_EXEC) != 0) {
+            if (ctx->verbose)
+                fprintf(stderr,
+                        "kbox: mmap denied: shared executable file mapping "
+                        "(prot=0x%x flags=0x%x fd=%ld pid=%u)\n",
+                        prot, mmap_flags, mmap_fd,
+                        kbox_syscall_request_pid(req));
             return kbox_dispatch_errno(EACCES);
         }
     }
@@ -89,6 +101,11 @@ struct kbox_dispatch forward_mmap(const struct kbox_syscall_request *req,
         return kbox_dispatch_continue();
 
     long lkl_fd = kbox_fd_table_get_lkl(ctx->fd_table, fd);
+    if (lkl_fd == KBOX_LKL_FD_SHADOW_ONLY ||
+        (lkl_fd < 0 && !fd_should_deny_io(fd, lkl_fd)))
+        return kbox_dispatch_continue();
+    if (lkl_fd < 0)
+        return kbox_dispatch_errno(EBADF);
     if (lkl_fd >= 0) {
         long host = kbox_fd_table_get_host_fd(ctx->fd_table, fd);
         if (host == -1) {
@@ -133,8 +150,8 @@ struct kbox_dispatch forward_mmap(const struct kbox_syscall_request *req,
 /* W^X enforcement for mprotect in trap/rewrite mode.
  *
  * Reject simultaneous PROT_WRITE|PROT_EXEC to prevent JIT spray attacks.
- * On none->X transitions, scan the page for syscall/sysenter/SVC instructions
- * and add them to the origin map for rewrite-mode caller validation.
+ * On writable->executable transitions in trap/rewrite mode, scan the promoted
+ * region and fail closed if it contains syscall instructions.
  *
  * In seccomp mode, this is a no-op: CONTINUE lets the host kernel handle it.
  */
@@ -160,15 +177,47 @@ struct kbox_dispatch forward_mprotect(const struct kbox_syscall_request *req,
         return kbox_dispatch_errno(EACCES);
     }
 
-    /* Allow the mprotect to proceed via host kernel. If the page transitions
-     * to PROT_EXEC, JIT code on it will take the Tier 1 (RET_TRAP) slow path
-     * because it won't be in the BPF allow ranges. This is safe: un-rewritten
-     * syscall instructions in JIT pages are caught by the SIGSYS handler.
-     *
-     * Full scan-on-X (rewriting JIT pages at mprotect time) is a future
-     * optimization: it would promote JIT pages from Tier 1 (~3us) to Tier 2
-     * (~41ns) but requires synchronous instruction scanning while the page
-     * is still writable, which adds latency to the mprotect call.
+    if ((prot & PROT_EXEC) != 0) {
+        int alias_rc = guest_range_has_shared_file_write_mapping(
+            kbox_syscall_request_pid(req), addr, len);
+        if (alias_rc < 0) {
+            if (ctx->verbose)
+                fprintf(stderr,
+                        "kbox: mprotect denied: cannot inspect shared "
+                        "mapping state at 0x%llx len=%llu (pid=%u)\n",
+                        (unsigned long long) addr, (unsigned long long) len,
+                        kbox_syscall_request_pid(req));
+            return kbox_dispatch_errno(EACCES);
+        }
+        if (alias_rc > 0) {
+            if (ctx->verbose)
+                fprintf(stderr,
+                        "kbox: mprotect denied: executable promotion of "
+                        "shared writable file mapping at 0x%llx len=%llu "
+                        "(pid=%u)\n",
+                        (unsigned long long) addr, (unsigned long long) len,
+                        kbox_syscall_request_pid(req));
+            return kbox_dispatch_errno(EACCES);
+        }
+        {
+            struct kbox_rewrite_runtime *runtime =
+                kbox_rewrite_runtime_active();
+
+            if (kbox_rewrite_runtime_promote_exec_region(runtime, addr, len) <
+                0) {
+                if (ctx->verbose)
+                    fprintf(stderr,
+                            "kbox: mprotect denied: scan-on-X failed at "
+                            "0x%llx len=%llu (pid=%u)\n",
+                            (unsigned long long) addr, (unsigned long long) len,
+                            kbox_syscall_request_pid(req));
+                return kbox_dispatch_errno(EACCES);
+            }
+        }
+    }
+
+    /* Clean pages can proceed. Pages with runtime-emitted syscall sites are
+     * denied by scan-on-X above.
      */
     return kbox_dispatch_continue();
 }
@@ -229,6 +278,19 @@ struct kbox_dispatch forward_clone3(const struct kbox_syscall_request *req,
         return kbox_dispatch_errno(EPERM);
     }
 
+    /* Write the validated flags back to the guest's clone_args struct to
+     * narrow the TOCTOU window: if a sibling thread mutated the flags between
+     * our read and the host kernel's re-read, this overwrites the mutation.
+     *
+     * A residual race remains (sibling writes after our write-back but before
+     * the host kernel reads), but for single-threaded guests -- kbox's normal
+     * mode -- the risk is zero.
+     */
+    int wrc = guest_mem_write(ctx, kbox_syscall_request_pid(req),
+                              kbox_syscall_request_arg(req, 0), &flags,
+                              sizeof(flags));
+    if (wrc < 0)
+        return kbox_dispatch_errno(-wrc);
     return kbox_dispatch_continue();
 }
 
@@ -548,7 +610,8 @@ static struct kbox_dispatch trap_userspace_exec(
         int launch_rc = kbox_loader_prepare_launch(&spec, &launch);
         if (launch_rc < 0) {
             const char msg[] = "kbox: trap exec: loader prepare failed\n";
-            (void) write(STDERR_FILENO, msg, sizeof(msg) - 1);
+            ssize_t n = write(STDERR_FILENO, msg, sizeof(msg) - 1);
+            (void) n;
             _exit(127);
         }
     }
@@ -744,9 +807,12 @@ struct kbox_dispatch forward_execve(const struct kbox_syscall_request *req,
     if (rc < 0)
         return kbox_dispatch_errno(-rc);
 
-    /* Virtual paths (/proc, /sys, /dev): let the host handle them. */
+    /* Virtual paths (/proc, /sys, /dev) are not executable binaries.
+     * Return ENOENT/EACCES rather than CONTINUE to avoid a TOCTOU window
+     * where a sibling thread could swap the path after validation.
+     */
     if (kbox_is_lkl_virtual_path(translated))
-        return kbox_dispatch_continue();
+        return kbox_dispatch_errno(EACCES);
 
     /* Open the binary from LKL. */
     long lkl_fd =

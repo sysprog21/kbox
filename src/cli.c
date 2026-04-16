@@ -24,7 +24,7 @@ enum {
     OPT_HELP,
 };
 
-static const struct option image_longopts[] = {
+static const struct option longopts[] = {
     {"root-dir", required_argument, NULL, 'r'},
     {"recommended-root", required_argument, NULL, 'R'},
     {"system-root", required_argument, NULL, 'S'},
@@ -50,13 +50,13 @@ static const struct option image_longopts[] = {
     {NULL, 0, NULL, 0},
 };
 
-static const char image_shortopts[] = "r:R:S:t:p:w:c:k:m:b:0n";
+static const char shortopts[] = "r:R:S:t:p:w:c:k:m:b:0nh";
 
 void kbox_usage(const char *argv0)
 {
     fprintf(
         stderr,
-        "Usage: %s image [OPTIONS]\n"
+        "Usage: %s [OPTIONS] [-- COMMAND [ARGS...]]\n"
         "\n"
         "Boot a Linux kernel from a rootfs disk image.\n"
         "\n"
@@ -85,36 +85,37 @@ void kbox_usage(const char *argv0)
         "      --web-bind ADDR        Bind address for web (default: "
         "127.0.0.1)\n"
         "      --trace-format FMT     Trace output format (json)\n"
-        "      --help                 Show this help\n",
+        "  -h, --help                 Show this help\n",
         argv0);
 }
 
-static void image_defaults(struct kbox_image_args *img)
+int kbox_parse_args(int argc, char *argv[], struct kbox_image_args *img)
 {
+    int c;
+    bool command_from_option = false;
+
+    if (!img)
+        return -1;
+
     memset(img, 0, sizeof(*img));
+
+    if (argc < 2) {
+        kbox_usage(argv[0]);
+        return -1;
+    }
+
     img->fs_type = "ext4";
-    img->part = 0;
     img->work_dir = "/";
     img->command = "/bin/sh";
     img->cmdline = "mem=1024M loglevel=4";
     img->mount_profile = KBOX_MOUNT_FULL;
     img->syscall_mode = KBOX_SYSCALL_MODE_AUTO;
-}
 
-static int parse_image_args(int argc,
-                            char *argv[],
-                            struct kbox_image_args *img,
-                            const char *argv0)
-{
-    int c;
-
-    image_defaults(img);
-
-    /* Reset getopt state for subcommand parsing */
+    /* Reset getopt state; kbox_parse_args may be called more than once
+     * (e.g. across unit tests). */
     optind = 0;
 
-    while ((c = getopt_long(argc, argv, image_shortopts, image_longopts,
-                            NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, shortopts, longopts, NULL)) != -1) {
         switch (c) {
         case 'r':
             img->root_dir = optarg;
@@ -148,6 +149,7 @@ static int parse_image_args(int argc,
             break;
         case 'c':
             img->command = optarg;
+            command_from_option = true;
             break;
         case 'k':
             img->cmdline = optarg;
@@ -257,61 +259,35 @@ static int parse_image_args(int argc,
                 return -1;
             }
             break;
+        case 'h':
         case OPT_HELP:
-            kbox_usage(argv0);
+            kbox_usage(argv[0]);
             return -1;
         default:
-            kbox_usage(argv0);
+            kbox_usage(argv[0]);
             return -1;
         }
     }
 
     if (!img->root_dir) {
         fprintf(stderr, "error: one of -r, -R, or -S is required\n");
-        kbox_usage(argv0);
+        kbox_usage(argv[0]);
         return -1;
     }
 
     /* Capture remaining arguments after getopt (i.e., after --). */
     if (optind < argc) {
-        img->command = argv[optind];
-        if (optind + 1 < argc) {
-            img->extra_args = (const char *const *) &argv[optind + 1];
-            img->extra_argc = argc - optind - 1;
+        if (command_from_option) {
+            img->extra_args = (const char *const *) &argv[optind];
+            img->extra_argc = argc - optind;
+        } else {
+            img->command = argv[optind];
+            if (optind + 1 < argc) {
+                img->extra_args = (const char *const *) &argv[optind + 1];
+                img->extra_argc = argc - optind - 1;
+            }
         }
     }
 
     return 0;
-}
-
-int kbox_parse_args(int argc, char *argv[], struct kbox_args *out)
-{
-    if (!out)
-        return -1;
-
-    memset(out, 0, sizeof(*out));
-
-    if (argc < 2) {
-        kbox_usage(argv[0]);
-        return -1;
-    }
-
-    const char *subcmd = argv[1];
-
-    if (strcmp(subcmd, "image") == 0) {
-        out->mode = KBOX_MODE_IMAGE;
-        /* Shift argv past the subcommand name so getopt sees "kbox" followed by
-         * the image-specific flags.
-         */
-        return parse_image_args(argc - 1, argv + 1, &out->image, argv[0]);
-    }
-
-    if (strcmp(subcmd, "--help") == 0 || strcmp(subcmd, "-h") == 0) {
-        kbox_usage(argv[0]);
-        return -1;
-    }
-
-    fprintf(stderr, "unknown subcommand: %s\n", subcmd);
-    kbox_usage(argv[0]);
-    return -1;
 }

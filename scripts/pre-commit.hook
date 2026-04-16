@@ -183,6 +183,9 @@ build_cppcheck_suppressions() {
         "syntaxError:include/kbox/compiler.h"
         "syntaxError:src/loader-transfer.c"
         "invalidFunctionArg:src/rewrite.c"
+        "invalidFunctionArg:tests/unit/test-procmem.c"
+        "nullPointerArithmeticOutOfMemory:tests/unit/test-procmem.c"
+        "nullPointerOutOfMemory:tests/unit/test-procmem.c"
         "knownConditionTrueFalse"
         "usleepCalled"
     )

@@ -18,6 +18,7 @@
 #include <sys/resource.h>
 #include <unistd.h>
 
+#include "fd-table.h"
 #include "kbox/compiler.h"
 #include "kbox/elf.h"
 #include "kbox/identity.h"
@@ -452,7 +453,10 @@ static int prepare_userspace_launch(const struct kbox_image_args *args,
      * Fall back to zeros only if getrandom is unavailable.
      */
     memset(launch_random, 0, sizeof(launch_random));
-    (void) getrandom(launch_random, sizeof(launch_random), 0);
+    {
+        ssize_t n = getrandom(launch_random, sizeof(launch_random), 0);
+        (void) n;
+    }
 
     argv = build_loader_argv(command, args->extra_args, args->extra_argc);
     if (!argv)
@@ -486,8 +490,8 @@ static const struct kbox_host_nrs *select_host_nrs(void)
 {
 #if defined(__x86_64__)
     return &HOST_NRS_X86_64;
-#elif defined(__aarch64__)
-    return &HOST_NRS_AARCH64;
+#elif defined(__aarch64__) || (defined(__riscv) && (__riscv_xlen == 64))
+    return &HOST_NRS_GENERIC;
 #else
     return NULL;
 #endif
@@ -578,6 +582,8 @@ static void init_launch_ctx(struct kbox_supervisor_ctx *ctx,
                             struct kbox_web_ctx *web_ctx)
 {
     kbox_fd_table_init(fd_table);
+    for (int i = 0; i < 3; i++)
+        kbox_fd_table_insert_at(fd_table, i, KBOX_LKL_FD_SHADOW_ONLY, 0);
     memset(ctx, 0, sizeof(*ctx));
 #if KBOX_STAT_CACHE_ENABLED
     for (int ci = 0; ci < KBOX_STAT_CACHE_MAX; ci++)
@@ -603,6 +609,36 @@ static void init_launch_ctx(struct kbox_supervisor_ctx *ctx,
     ctx->web = web_ctx;
 }
 
+/* After the exec-range seccomp filter is installed, the success path must
+ * branch directly into guest code. ASAN/UBSAN runtimes and stack-protector
+ * epilogues may issue host syscalls from unregistered IPs, which the filter
+ * rejects with EPERM.
+ */
+__attribute__((no_stack_protector))
+#if KBOX_HAS_ASAN
+__attribute__((no_sanitize("address")))
+#endif
+__attribute__((no_sanitize("undefined"))) static int
+install_exec_filter_and_transfer(
+    int (*install_filter)(const struct kbox_host_nrs *h,
+                          const struct kbox_syscall_trap_ip_range *trap_ranges,
+                          size_t trap_range_count),
+    const struct kbox_host_nrs *host_nrs,
+    const struct kbox_syscall_trap_ip_range *ranges,
+    size_t range_count,
+    const struct kbox_loader_transfer_state *transfer)
+{
+    if (!install_filter || !host_nrs || !ranges || range_count == 0 ||
+        !transfer) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (install_filter(host_nrs, ranges, range_count) < 0)
+        return -1;
+
+    kbox_loader_transfer_to_guest(transfer);
+}
+
 static int run_trap_launch(const struct kbox_image_args *args,
                            const struct kbox_sysnrs *sysnrs,
                            struct kbox_loader_launch *launch,
@@ -617,6 +653,15 @@ static int run_trap_launch(const struct kbox_image_args *args,
 
     if (!host_nrs || !launch)
         return -1;
+#if defined(__x86_64__) && KBOX_HAS_ASAN
+    (void) sysnrs;
+    (void) web_ctx;
+    fprintf(stderr,
+            "kbox: trap mode is unsupported in x86_64 ASAN builds; "
+            "use --syscall-mode=seccomp or BUILD=release\n");
+    errno = ENOTSUP;
+    return -1;
+#endif
     if (collect_trap_exec_ranges(launch, ranges, KBOX_LOADER_MAX_MAPPINGS,
                                  &range_count) < 0) {
         fprintf(stderr,
@@ -657,14 +702,15 @@ static int run_trap_launch(const struct kbox_image_args *args,
             fprintf(stderr, "kbox: trap exec range[%zu]: %p-%p\n", ri,
                     (void *) ranges[ri].start, (void *) ranges[ri].end);
     }
-    if (kbox_install_seccomp_trap_ranges(host_nrs, ranges, range_count) < 0) {
+    if (install_exec_filter_and_transfer(kbox_install_seccomp_trap_ranges,
+                                         host_nrs, ranges, range_count,
+                                         &launch->transfer) < 0) {
         fprintf(stderr,
                 "kbox: trap launch failed: cannot install guest trap filter\n");
         kbox_syscall_trap_runtime_uninstall(&runtime);
         return -1;
     }
-
-    kbox_loader_transfer_to_guest(&launch->transfer);
+    __builtin_unreachable();
 }
 
 static int run_rewrite_launch(const struct kbox_image_args *args,
@@ -683,6 +729,13 @@ static int run_rewrite_launch(const struct kbox_image_args *args,
     if (!host_nrs || !launch)
         return -1;
 #if defined(__x86_64__)
+#if KBOX_HAS_ASAN
+    fprintf(stderr,
+            "kbox: rewrite mode is unsupported in x86_64 ASAN builds; "
+            "use --syscall-mode=seccomp or BUILD=release\n");
+    errno = ENOTSUP;
+    return -1;
+#endif
     if (args->verbose) {
         fprintf(
             stderr,
@@ -733,8 +786,9 @@ static int run_rewrite_launch(const struct kbox_image_args *args,
         return -1;
     }
 
-    if (kbox_install_seccomp_rewrite_ranges(host_nrs, ranges, range_count) <
-        0) {
+    if (install_exec_filter_and_transfer(kbox_install_seccomp_rewrite_ranges,
+                                         host_nrs, ranges, range_count,
+                                         &launch->transfer) < 0) {
         fprintf(
             stderr,
             "kbox: rewrite launch failed: cannot install guest trap filter\n");
@@ -742,8 +796,7 @@ static int run_rewrite_launch(const struct kbox_image_args *args,
         kbox_rewrite_runtime_reset(&rewrite_runtime);
         return -1;
     }
-
-    kbox_loader_transfer_to_guest(&launch->transfer);
+    __builtin_unreachable();
 }
 
 /* Public entry point. */
@@ -842,97 +895,71 @@ int kbox_run_image(const struct kbox_image_args *args)
 
     /* Mount the filesystem. */
     opts = join_mount_opts(args, opts_buf, sizeof(opts_buf));
-    if (!opts) {
-        if (args->net)
-            kbox_net_cleanup();
-        return -1;
-    }
+    if (!opts)
+        goto err_post_boot;
     ret = lkl_mount_dev((unsigned) disk_id, args->part, fs_type, 0,
                         opts[0] ? opts : NULL, mount_buf, sizeof(mount_buf));
     if (ret < 0) {
         fprintf(stderr, "lkl_mount_dev: %s (%ld)\n", kbox_err_text(ret), ret);
-        if (args->net)
-            kbox_net_cleanup();
-        return -1;
+        goto err_post_boot;
     }
 
     /* Detect syscall ABI. */
     sysnrs = detect_sysnrs();
     if (!sysnrs) {
         fprintf(stderr, "detect_sysnrs failed\n");
-        if (args->net)
-            kbox_net_cleanup();
-        return -1;
+        goto err_post_boot;
     }
 
     /* Chroot into mountpoint. */
     ret = kbox_lkl_chroot(sysnrs, mount_buf);
     if (ret < 0) {
         fprintf(stderr, "chroot(%s): %s\n", mount_buf, kbox_err_text(ret));
-        if (args->net)
-            kbox_net_cleanup();
-        return -1;
+        goto err_post_boot;
     }
 
     /* Recommended mounts. */
     if (args->recommended || args->system_root) {
-        if (kbox_apply_recommended_mounts(sysnrs, args->mount_profile) < 0) {
-            if (args->net)
-                kbox_net_cleanup();
-            return -1;
-        }
+        if (kbox_apply_recommended_mounts(sysnrs, args->mount_profile) < 0)
+            goto err_post_boot;
     }
 
     /* Bind mounts. */
     if (bind_count > 0) {
-        if (kbox_apply_bind_mounts(sysnrs, bind_specs, bind_count) < 0) {
-            if (args->net)
-                kbox_net_cleanup();
-            return -1;
-        }
+        if (kbox_apply_bind_mounts(sysnrs, bind_specs, bind_count) < 0)
+            goto err_post_boot;
     }
 
     /* Working directory. */
     ret = kbox_lkl_chdir(sysnrs, work_dir);
     if (ret < 0) {
         fprintf(stderr, "chdir(%s): %s\n", work_dir, kbox_err_text(ret));
-        if (args->net)
-            kbox_net_cleanup();
-        return -1;
+        goto err_post_boot;
     }
 
     /* Identity. */
     if (args->change_id) {
         if (kbox_parse_change_id(args->change_id, &override_uid,
-                                 &override_gid) < 0) {
-            if (args->net)
-                kbox_net_cleanup();
-            return -1;
-        }
+                                 &override_gid) < 0)
+            goto err_post_boot;
     }
 
     {
         int root_id = args->root_id || args->system_root;
         if (kbox_apply_guest_identity(sysnrs, root_id, override_uid,
-                                      override_gid) < 0) {
-            if (args->net)
-                kbox_net_cleanup();
-            return -1;
-        }
+                                      override_gid) < 0)
+            goto err_post_boot;
     }
 
     /* Probe host features.  Rewrite mode skips seccomp-specific probes. */
-    if (kbox_probe_host_features(probe_mode) < 0) {
-        if (args->net)
-            kbox_net_cleanup();
-        return -1;
-    }
+    if (kbox_probe_host_features(probe_mode) < 0)
+        goto err_post_boot;
 
     /* Networking: configure interface (optional). */
     if (args->net) {
         if (kbox_net_configure(sysnrs) < 0) {
             kbox_net_cleanup();
-            return -1;
+            goto err_post_boot;
         }
     }
 
@@ -1505,6 +1532,7 @@ int kbox_run_image(const struct kbox_image_args *args)
         close(exec_memfd);
 
     err_net:
+        kbox_halt_kernel();
 #ifdef KBOX_HAS_WEB
         if (web_ctx)
             kbox_web_shutdown(web_ctx);
@@ -1513,4 +1541,10 @@ int kbox_run_image(const struct kbox_image_args *args)
             kbox_net_cleanup();
         return rc;
     }
+
+err_post_boot:
+    kbox_halt_kernel();
+    if (args->net)
+        kbox_net_cleanup();
+    return -1;
 }

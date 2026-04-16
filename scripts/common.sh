@@ -67,6 +67,7 @@ detect_arch()
     case "${1:-$(uname -m)}" in
         x86_64 | amd64) ARCH="x86_64" ;;
         aarch64 | arm64) ARCH="aarch64" ;;
+        riscv64) ARCH="riscv64" ;;
         *) die "unsupported architecture: ${1:-$(uname -m)}" ;;
     esac
 }

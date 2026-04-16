@@ -9,22 +9,23 @@
  * dispatch-misc.c) can call them.
  */
 
+#include <stdio.h>
+
 #include "fd-table.h"
 #include "lkl-wrap.h"
 #include "seccomp.h"
 
-/* Sentinel values for host_fd and lkl_fd fields in kbox_fd_entry.
+/* Sentinel values for the host_fd field in kbox_fd_entry.
  *
  * KBOX_FD_HOST_SAME_FD_SHADOW: host_fd is a same-fd shadow (memfd injected
  *     at the tracee's FD number via SECCOMP_IOCTL_NOTIF_ADDFD).
  * KBOX_FD_LOCAL_ONLY_SHADOW: host_fd is a local-only shadow (supervisor
  *     holds the memfd; trap/rewrite mode, no tracee injection).
- * KBOX_LKL_FD_SHADOW_ONLY: lkl_fd placeholder for entries that exist only
- *     as host shadows with no LKL backing FD.
+ *
+ * KBOX_LKL_FD_SHADOW_ONLY (lkl_fd sentinel) is defined in fd-table.h.
  */
 #define KBOX_FD_HOST_SAME_FD_SHADOW (-2)
 #define KBOX_FD_LOCAL_ONLY_SHADOW (-3)
-#define KBOX_LKL_FD_SHADOW_ONLY (-2)
 
 /* Shared scratch buffer for I/O dispatch. The dispatcher is single-threaded and
  * non-reentrant: only one syscall is dispatched at a time.
@@ -57,6 +58,27 @@ static inline int request_uses_trap_signals(
                    req->source == KBOX_SYSCALL_SOURCE_REWRITE);
 }
 
+/* Return 1 if an FD-based I/O syscall should fail with EBADF rather than
+ * CONTINUE for a not-in-table FD.  Only tracked FDs (lkl_fd >= 0 for LKL
+ * files, KBOX_LKL_FD_SHADOW_ONLY for host-passthrough pipes/eventfds/proc
+ * opens) are allowed.  All untracked FDs (lkl_fd == -1) are denied to block
+ * I/O on host FDs leaked via the openat TOCTOU race.
+ */
+static inline int fd_should_deny_io(long fd, long lkl_fd)
+{
+    (void) fd;
+    if (lkl_fd == KBOX_LKL_FD_SHADOW_ONLY || lkl_fd >= 0)
+        return 0;
+    return 1;
+}
+
+static inline void track_host_passthrough_fd(struct kbox_fd_table *t, int fd)
+{
+    if (kbox_fd_table_insert_at(t, fd, KBOX_LKL_FD_SHADOW_ONLY, 0) < 0)
+        fprintf(stderr, "kbox: warning: host-passthrough FD %d untrackable\n",
+                fd);
+}
+
 /* Look up the FD table entry for a virtual or low-range FD. Returns NULL if fd
  * is out of range or t is NULL.
  */
@@ -67,6 +89,8 @@ static inline struct kbox_fd_entry *fd_table_entry(struct kbox_fd_table *t,
         return NULL;
     if (fd >= KBOX_FD_BASE && fd < KBOX_FD_BASE + KBOX_FD_TABLE_MAX)
         return &t->entries[fd - KBOX_FD_BASE];
+    if (fd >= KBOX_LOW_FD_MAX && fd < KBOX_FD_BASE)
+        return &t->mid_fds[fd - KBOX_LOW_FD_MAX];
     if (fd >= 0 && fd < KBOX_LOW_FD_MAX)
         return &t->low_fds[fd];
     return NULL;
@@ -243,6 +267,14 @@ int translate_request_at_path(const struct kbox_syscall_request *req,
                               long *lkl_dirfd);
 int should_continue_for_dirfd(long lkl_dirfd);
 int guest_addr_is_writable(pid_t pid, uint64_t addr);
+int guest_range_has_shared_file_write_mapping(pid_t pid,
+                                              uint64_t addr,
+                                              uint64_t len);
+int dup_tracee_fd(pid_t pid, int tracee_fd);
+void translate_proc_self(const char *path,
+                         pid_t pid,
+                         char *sv_path,
+                         size_t sv_path_len);
 
 /* FD utilities. */
 
@@ -430,6 +462,14 @@ struct kbox_dispatch forward_readlinkat(const struct kbox_syscall_request *req,
                                         struct kbox_supervisor_ctx *ctx);
 struct kbox_dispatch forward_mmap(const struct kbox_syscall_request *req,
                                   struct kbox_supervisor_ctx *ctx);
+struct kbox_dispatch forward_eventfd(const struct kbox_syscall_request *req,
+                                     struct kbox_supervisor_ctx *ctx);
+struct kbox_dispatch forward_timerfd_create(
+    const struct kbox_syscall_request *req,
+    struct kbox_supervisor_ctx *ctx);
+struct kbox_dispatch forward_epoll_create1(
+    const struct kbox_syscall_request *req,
+    struct kbox_supervisor_ctx *ctx);
 
 /* Clone namespace flags (portable fallbacks for older headers). */
 

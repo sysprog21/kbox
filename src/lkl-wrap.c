@@ -46,6 +46,14 @@ int kbox_boot_kernel(const char *cmdline)
     return 0;
 }
 
+void kbox_halt_kernel(void)
+{
+    long ret = lkl_sys_halt();
+    if (ret < 0)
+        fprintf(stderr, "lkl_sys_halt failed: %s (%ld)\n",
+                lkl_strerror((int) ret), ret);
+}
+
 /* Typed LKL syscall wrappers. */
 
 long kbox_lkl_mount(const struct kbox_sysnrs *s,
