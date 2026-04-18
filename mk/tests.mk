@@ -91,8 +91,7 @@ check-integration: $(TARGET) guest-bins stress-bins $(ROOTFS)
 
 check-stress: $(TARGET) stress-bins $(ROOTFS)
 	@echo "  RUN     check-stress"
-	$(Q)./scripts/run-stress.sh ./$(TARGET) $(ROOTFS) || \
-	  echo "(stress test failures are non-blocking -- see TODO.md)"
+	$(Q)./scripts/run-stress.sh ./$(TARGET) $(ROOTFS)
 
 # ---- Guest / stress binaries (static, no ASAN) ----
 # These are cross-compiled on Linux and placed into the rootfs.

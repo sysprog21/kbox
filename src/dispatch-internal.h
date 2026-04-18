@@ -325,6 +325,7 @@ int try_writeback_shadow_open(struct kbox_supervisor_ctx *ctx,
                               struct kbox_dispatch *out);
 int sync_shadow_writeback(struct kbox_supervisor_ctx *ctx,
                           struct kbox_fd_entry *entry);
+void close_cloexec_with_writeback(struct kbox_supervisor_ctx *ctx);
 
 /* Handler functions: dispatch-net.c (networking syscalls). */
 

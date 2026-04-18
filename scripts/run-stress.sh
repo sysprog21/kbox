@@ -18,6 +18,12 @@ export LSAN_OPTIONS="${LSAN_OPTIONS:+${LSAN_OPTIONS}:}${SUPP}"
 
 KBOX="${1:-./kbox}"
 ROOTFS="${2:-rootfs.ext4}"
+
+# Stress tests exercise threads (concurrent-io), interval timers
+# (signal-race), and rapid fork/wait (rapid-fork).  These require
+# seccomp mode: trap/rewrite mode denies CLONE_THREAD by design and
+# has signal-handler re-entrancy constraints that break setitimer.
+KBOX_MODE_FLAGS="--syscall-mode=seccomp"
 PASS=0
 FAIL=0
 SKIP=0
@@ -44,7 +50,7 @@ run_stress_test()
     printf "  %-40s " "$name"
 
     # Check if the test binary exists in the rootfs.
-    if ! "$KBOX" -S "$ROOTFS" -- /bin/sh -c "test -x '$guest_path'" 2> /dev/null; then
+    if ! "$KBOX" $KBOX_MODE_FLAGS -S "$ROOTFS" -- /bin/sh -c "test -x '$guest_path'" 2> /dev/null; then
         printf "${YELLOW}SKIP${NC} (not in rootfs)\n"
         SKIP=$((SKIP + 1))
         return
@@ -54,13 +60,13 @@ run_stress_test()
 
     RC=0
     if [ -n "$TIMEOUT_CMD" ]; then
-        if "$TIMEOUT_CMD" "$TIMEOUT" "$KBOX" -S "$ROOTFS" -- "$guest_path" $guest_args > "$OUTPUT" 2>&1; then
+        if "$TIMEOUT_CMD" "$TIMEOUT" "$KBOX" $KBOX_MODE_FLAGS -S "$ROOTFS" -- "$guest_path" $guest_args > "$OUTPUT" 2>&1; then
             RC=0
         else
             RC=$?
         fi
     else
-        if "$KBOX" -S "$ROOTFS" -- "$guest_path" $guest_args > "$OUTPUT" 2>&1; then
+        if "$KBOX" $KBOX_MODE_FLAGS -S "$ROOTFS" -- "$guest_path" $guest_args > "$OUTPUT" 2>&1; then
             RC=0
         else
             RC=$?

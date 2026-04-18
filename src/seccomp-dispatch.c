@@ -1030,6 +1030,40 @@ long next_hostonly_fd_hint(const struct kbox_supervisor_ctx *ctx)
     return fd;
 }
 
+static long allocate_writable_shadow_fd(struct kbox_supervisor_ctx *ctx)
+{
+    long base_fd = KBOX_FD_FAST_BASE;
+    long end_fd = KBOX_FD_HOSTONLY_BASE;
+    long start_fd;
+    long fd;
+
+    if (!ctx || !ctx->fd_table)
+        return -1;
+
+    start_fd = ctx->fd_table->next_fast_fd;
+    if (start_fd < base_fd || start_fd >= end_fd)
+        start_fd = base_fd;
+
+    for (fd = start_fd; fd < end_fd; fd++) {
+        struct kbox_fd_entry *entry = fd_table_entry(ctx->fd_table, fd);
+
+        if (entry && entry->lkl_fd == -1 && !child_fd_is_open(ctx, fd)) {
+            ctx->fd_table->next_fast_fd = fd + 1;
+            return fd;
+        }
+    }
+    for (fd = base_fd; fd < start_fd; fd++) {
+        struct kbox_fd_entry *entry = fd_table_entry(ctx->fd_table, fd);
+
+        if (entry && entry->lkl_fd == -1 && !child_fd_is_open(ctx, fd)) {
+            ctx->fd_table->next_fast_fd = fd + 1;
+            return fd;
+        }
+    }
+
+    return -1;
+}
+
 int ensure_proc_self_fd_dir(struct kbox_supervisor_ctx *ctx)
 {
     if (!ctx)
@@ -1594,6 +1628,59 @@ void note_shadow_writeback_close(struct kbox_supervisor_ctx *ctx,
         ctx->active_writeback_shadows--;
 }
 
+static void sync_cloexec_writebacks_in_range(struct kbox_supervisor_ctx *ctx,
+                                             struct kbox_fd_entry *entries,
+                                             long count)
+{
+    long i;
+
+    if (!ctx || !entries)
+        return;
+    for (i = 0; i < count; i++) {
+        struct kbox_fd_entry *entry = &entries[i];
+
+        if (entry->lkl_fd != -1 && entry->cloexec) {
+            if (entry->lkl_fd >= 0)
+                invalidate_stat_cache_fd(ctx, entry->lkl_fd);
+            if (entry->shadow_writeback) {
+                (void) sync_shadow_writeback(ctx, entry);
+                note_shadow_writeback_close(ctx, entry);
+            }
+        }
+    }
+}
+
+void close_cloexec_with_writeback(struct kbox_supervisor_ctx *ctx)
+{
+    if (!ctx || !ctx->fd_table)
+        return;
+
+    sync_cloexec_writebacks_in_range(ctx, ctx->fd_table->low_fds,
+                                     KBOX_LOW_FD_MAX);
+    sync_cloexec_writebacks_in_range(ctx, ctx->fd_table->mid_fds,
+                                     KBOX_MID_FD_MAX);
+    sync_cloexec_writebacks_in_range(ctx, ctx->fd_table->entries,
+                                     KBOX_FD_TABLE_MAX);
+    kbox_fd_table_close_cloexec(ctx->fd_table, ctx->sysnrs);
+}
+
+static long remove_fd_table_entry_with_writeback(
+    struct kbox_supervisor_ctx *ctx,
+    long fd)
+{
+    struct kbox_fd_entry *entry;
+
+    if (!ctx || !ctx->fd_table)
+        return -1;
+
+    entry = fd_table_entry(ctx->fd_table, fd);
+    if (entry && entry->shadow_writeback) {
+        (void) sync_shadow_writeback(ctx, entry);
+        note_shadow_writeback_close(ctx, entry);
+    }
+    return kbox_fd_table_remove(ctx->fd_table, fd);
+}
+
 int try_writeback_shadow_open(struct kbox_supervisor_ctx *ctx,
                               const struct kbox_syscall_request *req,
                               long lkl_fd,
@@ -1603,8 +1690,8 @@ int try_writeback_shadow_open(struct kbox_supervisor_ctx *ctx,
 {
     struct kbox_fd_entry *entry;
     int memfd;
+    long target_fd;
     int injected;
-    long vfd;
 
     if (!ctx || !req || !out || lkl_fd < 0 || !translated)
         return 0;
@@ -1622,36 +1709,58 @@ int try_writeback_shadow_open(struct kbox_supervisor_ctx *ctx,
      * sealed.
      */
 
-    vfd = kbox_fd_table_insert_fast(ctx->fd_table, lkl_fd, 0);
-    if (vfd < 0) {
+    target_fd = allocate_writable_shadow_fd(ctx);
+    if (target_fd < 0) {
         close(memfd);
         return 0;
     }
 
-    injected = request_addfd_at(ctx, req, memfd, (int) vfd,
+    /* Install only in the fast-shadow band.  Host-only FDs are allowed to
+     * close directly in BPF, which would bypass writeback, and kernel-picked
+     * ADDFD results can also exceed the fd-table range.  Unlike the old
+     * preallocation approach, the fd-table entry is published only after
+     * ADDFD_AT succeeds and after child_fd_is_open() has verified that no
+     * pending close still owns this tracee fd number.
+     */
+    injected = request_addfd_at(ctx, req, memfd, (int) target_fd,
                                 (flags & O_CLOEXEC) ? O_CLOEXEC : 0);
     if (injected < 0) {
-        kbox_fd_table_remove(ctx->fd_table, vfd);
         close(memfd);
         return 0;
     }
 
-    entry = fd_table_entry(ctx->fd_table, vfd);
-    if (!entry) {
-        kbox_fd_table_remove(ctx->fd_table, vfd);
-        close(memfd);
-        return 0;
+    /* SECCOMP_ADDFD_FLAG_SETFD guarantees injected == target_fd on success.
+     * A mismatch means the kernel API contract broke; the tracee would hold
+     * an untracked FD we cannot revoke.  Crash loudly instead of leaking.
+     */
+    if (injected != target_fd) {
+        fprintf(stderr,
+                "kbox: ADDFD_AT returned %d, expected %ld -- aborting\n",
+                injected, target_fd);
+        abort();
     }
 
+    /* allocate_writable_shadow_fd validated target_fd is in-range and free.
+     * insert_at must not fail here; if it does, the tracee holds a live FD
+     * with no supervisor bookkeeping.
+     */
+    if (kbox_fd_table_insert_at(ctx->fd_table, injected, lkl_fd, 0) < 0) {
+        fprintf(stderr,
+                "kbox: fd_table_insert_at(%d) failed after ADDFD -- aborting\n",
+                injected);
+        abort();
+    }
+
+    entry = fd_table_entry(ctx->fd_table, injected);
     entry->host_fd = KBOX_FD_HOST_SAME_FD_SHADOW;
     entry->shadow_sp = memfd;
     note_shadow_writeback_open(ctx, entry);
     if (ctx->verbose) {
         fprintf(stderr,
-                "kbox: writable shadow promote fd=%ld lkl_fd=%ld path=%s\n",
-                vfd, lkl_fd, translated);
+                "kbox: writable shadow promote fd=%d lkl_fd=%ld path=%s\n",
+                injected, lkl_fd, translated);
     }
-    *out = kbox_dispatch_value((int64_t) vfd);
+    *out = kbox_dispatch_value((int64_t) injected);
     return 1;
 }
 
@@ -2689,16 +2798,16 @@ static void cleanup_replaced_fd_tracking(struct kbox_supervisor_ctx *ctx,
 
     stale_lkl = kbox_fd_table_get_lkl(ctx->fd_table, fd);
     if (stale_lkl >= 0) {
+        remove_fd_table_entry_with_writeback(ctx, fd);
         lkl_close_and_invalidate(ctx, stale_lkl);
-        kbox_fd_table_remove(ctx->fd_table, fd);
     } else if (stale_lkl == KBOX_LKL_FD_SHADOW_ONLY) {
-        kbox_fd_table_remove(ctx->fd_table, fd);
+        remove_fd_table_entry_with_writeback(ctx, fd);
     }
 
     shadow_vfd = kbox_fd_table_find_by_host_fd(ctx->fd_table, fd);
     if (shadow_vfd >= 0) {
         long shadow_lkl = kbox_fd_table_get_lkl(ctx->fd_table, shadow_vfd);
-        kbox_fd_table_remove(ctx->fd_table, shadow_vfd);
+        remove_fd_table_entry_with_writeback(ctx, shadow_vfd);
         if (shadow_lkl >= 0) {
             int ref = 0;
             for (long j = 0; j < KBOX_FD_TABLE_MAX && !ref; j++)
@@ -2851,14 +2960,14 @@ static struct kbox_dispatch forward_dup2(const struct kbox_syscall_request *req,
                     /* Remove any stale mapping at newfd (virtual or shadow). */
                     long stale = kbox_fd_table_get_lkl(ctx->fd_table, newfd);
                     if (stale >= 0) {
+                        remove_fd_table_entry_with_writeback(ctx, newfd);
                         lkl_close_and_invalidate(ctx, stale);
-                        kbox_fd_table_remove(ctx->fd_table, newfd);
                     } else {
                         long sv =
                             kbox_fd_table_find_by_host_fd(ctx->fd_table, newfd);
                         if (sv >= 0) {
                             long sl = kbox_fd_table_get_lkl(ctx->fd_table, sv);
-                            kbox_fd_table_remove(ctx->fd_table, sv);
+                            remove_fd_table_entry_with_writeback(ctx, sv);
                             if (sl >= 0) {
                                 int ref = 0;
                                 for (long j = 0; j < KBOX_FD_TABLE_MAX; j++)
@@ -2914,7 +3023,7 @@ static struct kbox_dispatch forward_dup2(const struct kbox_syscall_request *req,
     if (ret < 0)
         return kbox_dispatch_errno((int) (-ret));
 
-    long existing = kbox_fd_table_remove(ctx->fd_table, newfd);
+    long existing = remove_fd_table_entry_with_writeback(ctx, newfd);
     if (existing >= 0)
         lkl_close_and_invalidate(ctx, existing);
 
@@ -2978,15 +3087,15 @@ static struct kbox_dispatch forward_dup3(const struct kbox_syscall_request *req,
                     /* Remove stale mapping at newfd (virtual or shadow). */
                     long stale3 = kbox_fd_table_get_lkl(ctx->fd_table, newfd);
                     if (stale3 >= 0) {
+                        remove_fd_table_entry_with_writeback(ctx, newfd);
                         lkl_close_and_invalidate(ctx, stale3);
-                        kbox_fd_table_remove(ctx->fd_table, newfd);
                     } else {
                         long sv3 =
                             kbox_fd_table_find_by_host_fd(ctx->fd_table, newfd);
                         if (sv3 >= 0) {
                             long sl3 =
                                 kbox_fd_table_get_lkl(ctx->fd_table, sv3);
-                            kbox_fd_table_remove(ctx->fd_table, sv3);
+                            remove_fd_table_entry_with_writeback(ctx, sv3);
                             if (sl3 >= 0) {
                                 int r3 = 0;
                                 for (long j = 0; j < KBOX_FD_TABLE_MAX; j++)
@@ -3042,7 +3151,7 @@ static struct kbox_dispatch forward_dup3(const struct kbox_syscall_request *req,
     if (ret < 0)
         return kbox_dispatch_errno((int) (-ret));
 
-    long existing = kbox_fd_table_remove(ctx->fd_table, newfd);
+    long existing = remove_fd_table_entry_with_writeback(ctx, newfd);
     if (existing >= 0)
         lkl_close_and_invalidate(ctx, existing);
 

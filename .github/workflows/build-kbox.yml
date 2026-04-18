@@ -171,4 +171,5 @@ jobs:
 
       - name: Stress tests
         run: ./scripts/run-stress.sh ./kbox alpine.ext4
-        continue-on-error: true
+        env:
+          STRESS_TIMEOUT: 120

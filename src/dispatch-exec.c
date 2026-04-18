@@ -656,7 +656,7 @@ static struct kbox_dispatch trap_userspace_exec(
     /* Clean up CLOEXEC entries from the FD table, matching what a
      * real exec would do.
      */
-    kbox_fd_table_close_cloexec(ctx->fd_table, ctx->sysnrs);
+    close_cloexec_with_writeback(ctx);
 
     /* If the original launch used rewrite mode, re-apply binary rewriting to
      * the new binary. This patches syscall instructions in the newly loaded
@@ -1024,7 +1024,7 @@ struct kbox_dispatch forward_execve(const struct kbox_syscall_request *req,
      * to keeping stale mappings alive across a successful exec, which misroutes
      * future FD operations in the new image.
      */
-    kbox_fd_table_close_cloexec(ctx->fd_table, ctx->sysnrs);
+    close_cloexec_with_writeback(ctx);
 
     /* Invalidate the cached /proc/pid/mem FD. After exec, the kernel may revoke
      * access to the old FD even though the PID is the same (credential check
