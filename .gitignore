@@ -21,3 +21,5 @@ tests/stress/long-running
 tests/stress/rapid-fork
 tests/stress/signal-race
 !tests/stress/*.c
+build/lkl-src
+src/web-assets.c
