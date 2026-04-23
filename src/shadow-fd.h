@@ -4,8 +4,10 @@
 
 struct kbox_sysnrs;
 
-#define KBOX_SHADOW_MAX_SIZE (256L * 1024 * 1024)
 
+#define DEFAULT_SHADOW_LIMIT (256ULL * 1024 * 1024)
+#define MAX_SHADOW_LIMIT (512ULL * 1024 * 1024)
+void kbox_shadow_set_limit(uint64_t limit);
 int kbox_shadow_create(const struct kbox_sysnrs *s, long lkl_fd);
 int kbox_shadow_seal(int memfd);
 

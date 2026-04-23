@@ -828,6 +828,9 @@ int kbox_run_image(const struct kbox_image_args *args)
     if (!root_path)
         return -1;
 
+    if (args->shadow_limit > 0)
+        kbox_shadow_set_limit(args->shadow_limit);
+
     fs_type = args->fs_type ? args->fs_type : "ext4";
     work_dir = args->work_dir ? args->work_dir : "/";
     command = args->command ? args->command : "/bin/sh";

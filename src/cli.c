@@ -21,6 +21,7 @@ enum {
     OPT_SYSCALL_MODE,
     OPT_TRACE_FORMAT,
     OPT_SQPOLL,
+    OPT_SHADOW_LIMIT,
     OPT_HELP,
 };
 
@@ -46,6 +47,7 @@ static const struct option longopts[] = {
     {"syscall-mode", required_argument, NULL, OPT_SYSCALL_MODE},
     {"sqpoll", no_argument, NULL, OPT_SQPOLL},
     {"trace-format", required_argument, NULL, OPT_TRACE_FORMAT},
+    {"shadow-limit", required_argument, NULL, OPT_SHADOW_LIMIT},
     {"help", no_argument, NULL, OPT_HELP},
     {NULL, 0, NULL, 0},
 };
@@ -85,6 +87,8 @@ void kbox_usage(const char *argv0)
         "      --web-bind ADDR        Bind address for web (default: "
         "127.0.0.1)\n"
         "      --trace-format FMT     Trace output format (json)\n"
+        "      --shadow-limit BYTES   Max size for shadow FDs (default: "
+        "256MB)\n"
         "  -h, --help                 Show this help\n",
         argv0);
 }
@@ -259,6 +263,17 @@ int kbox_parse_args(int argc, char *argv[], struct kbox_image_args *img)
                 return -1;
             }
             break;
+        case OPT_SHADOW_LIMIT: {
+            char *end;
+            errno = 0;
+            unsigned long long v = strtoull(optarg, &end, 10);
+            if (*end != '\0' || errno != 0) {
+                fprintf(stderr, "invalid shadow limit: %s\n", optarg);
+                return -1;
+            }
+            img->shadow_limit = (uint64_t) v;
+            break;
+        }
         case 'h':
         case OPT_HELP:
             kbox_usage(argv[0]);

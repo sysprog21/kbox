@@ -4,6 +4,7 @@
 #define KBOX_CLI_H
 
 #include <stdbool.h>
+#include <stdint.h>
 #include "kbox/mount.h"
 
 /* CLI argument structures and parsing. */
@@ -45,6 +46,8 @@ struct kbox_image_args {
     bool sqpoll;                   /* --sqpoll: busy-poll service thread */
     const char *const *extra_args; /* remaining args after -- */
     int extra_argc;                /* count of extra_args */
+    uint64_t shadow_limit; /* --shadow-limit BYTES: max size for shadow FDs
+                              (default: 256MB) */
 };
 
 /* Parse command-line arguments.

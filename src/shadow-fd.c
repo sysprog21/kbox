@@ -40,6 +40,8 @@
 /* Read chunk size: 128 KB, matches KBOX_IO_CHUNK_LEN. */
 #define SHADOW_CHUNK_LEN (128 * 1024)
 
+static uint64_t current_shadow_limit = DEFAULT_SHADOW_LIMIT;
+
 int kbox_shadow_create(const struct kbox_sysnrs *s, long lkl_fd)
 {
     /* Use kbox_lkl_stat (generic-arch layout) instead of struct stat
@@ -57,7 +59,7 @@ int kbox_shadow_create(const struct kbox_sysnrs *s, long lkl_fd)
     if (!S_ISREG(kst.st_mode))
         return -ENODEV;
 
-    if (kst.st_size > KBOX_SHADOW_MAX_SIZE)
+    if ((uint64_t) kst.st_size > current_shadow_limit)
         return -EFBIG;
 
     int memfd = memfd_create("kbox-shadow", MFD_CLOEXEC | MFD_ALLOW_SEALING);
@@ -126,4 +128,13 @@ int kbox_shadow_seal(int memfd)
         return -1;
     return fcntl(memfd, F_ADD_SEALS,
                  F_SEAL_WRITE | F_SEAL_GROW | F_SEAL_SHRINK | F_SEAL_SEAL);
+}
+
+void kbox_shadow_set_limit(uint64_t limit)
+{
+    if (limit > MAX_SHADOW_LIMIT) {
+        current_shadow_limit = MAX_SHADOW_LIMIT;
+    } else if (limit > 0) {
+        current_shadow_limit = limit;
+    }
 }
