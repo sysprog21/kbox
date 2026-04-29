@@ -1,0 +1,25 @@
+scripts/mkrootfs.sh
+  cf10d70eb34e9031 26-37,46-49,53,71-72
+.github/workflows/build-kbox.yml
+  cf10d70eb34e9031 180-181
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "0000fec6eb9b5936e5140f1283f36fd490e11ec1",
+  "prompts": {
+    "cf10d70eb34e9031": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7642676f-a968-42fb-aba8-069c1a62caac",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Jim Huang",
+      "messages": [],
+      "total_additions": 21,
+      "total_deletions": 8,
+      "accepted_lines": 866,
+      "overriden_lines": 0
+    }
+  }
+}
