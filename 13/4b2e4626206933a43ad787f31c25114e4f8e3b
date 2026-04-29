@@ -1,0 +1,37 @@
+scripts/pre-commit.hook
+  00c73104beb2cc44 186-188
+src/seccomp-dispatch.c
+  00c73104beb2cc44 1221-1227,1238-1244,2126-2131,2133,2148-2153,2220-2225,2228-2230,2344-2350,2352-2353,2355,2367-2369,2372-2378,2380,2383-2388,2390,2394,2399-2408
+tests/unit/test-elf.c
+  00c73104beb2cc44 579,581-664,680-685
+src/dispatch-misc.c
+  00c73104beb2cc44 478-483,486-488,491-496,498,500,590-595,597,623
+src/elf.c
+  00c73104beb2cc44 179,182,185,187-190,193,195,197
+tests/unit/test-runner.c
+  00c73104beb2cc44 13
+src/procmem.c
+  00c73104beb2cc44 342-345,350-353
+tests/unit/test-procmem.c
+  00c73104beb2cc44 124-216,226-229
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "134b2e4626206933a43ad787f31c25114e4f8e3b",
+  "prompts": {
+    "00c73104beb2cc44": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "805a6796-db30-46d1-9aed-fb73b9a64448",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jim Huang",
+      "messages": [],
+      "total_additions": 347,
+      "total_deletions": 90,
+      "accepted_lines": 308,
+      "overriden_lines": 0
+    }
+  }
+}
