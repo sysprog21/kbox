@@ -182,6 +182,24 @@ make rootfs                                       # host arch
 make ARCH=aarch64 CC=aarch64-linux-gnu-gcc rootfs # cross
 ```
 
+To pull from a Docker [v2 registry](https://distribution.github.io/distribution/spec/api/)
+instead, pass `--image=docker://...` to the rootfs script (no
+[`docker`](https://www.docker.com/) daemon required, `python3` stdlib
+only):
+
+```bash
+ROOTFS=alpine.ext4 ./scripts/mkrootfs.sh --image=docker://alpine:3.21
+ROOTFS=node.ext4   ./scripts/mkrootfs.sh --image=docker://node:alpine \
+                                         --rewrite-uid --size=512
+```
+
+`--rewrite-uid` restores OCI tar-header ownership into the ext4 inodes
+via [`tools/oci-chown`](tools/oci-chown/) (built on demand, links
+against [`libext2fs`](https://e2fsprogs.sourceforge.net/)) and is
+required for [`--root-id`](#selecting-an-interception-mode) guests.
+See [docs/oci-image-import.md](docs/oci-image-import.md) for the full
+pipeline, layer cache, and threat model.
+
 Run a guest binary:
 
 ```bash
@@ -229,6 +247,7 @@ Run `./kbox --help` for the full option list.
 | Three syscall interception tiers and auto selection | [docs/interception-tiers.md](docs/interception-tiers.md) |
 | Internal design: dispatch routing, FD table, shadow FDs, ABI translation | [docs/architecture.md](docs/architecture.md) |
 | Threat model and deployment tiers | [docs/security-model.md](docs/security-model.md) |
+| Building rootfs images from OCI registries | [docs/oci-image-import.md](docs/oci-image-import.md) |
 | Using kbox as an AI agent execution layer | [docs/ai-agents.md](docs/ai-agents.md) |
 | Web dashboard and telemetry endpoints | [docs/web-observatory.md](docs/web-observatory.md) |
 | GDB workflow and helper commands | [docs/gdb-workflow.md](docs/gdb-workflow.md) |
