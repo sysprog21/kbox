@@ -1,15 +1,16 @@
 # Build kbox and run full test suite.
 # Zero root required -- everything runs as an unprivileged user.
 #
-# Parallelism (4 independent jobs, 1 sequential):
-#   commit-hygiene -- Change-Id + subject format (needs full history)
-#   lint           -- clang-format, newline, security, cppcheck (one apt install)
-#   unit-tests     -- no LKL dependency, ASAN/UBSAN
-#   build-kbox     -- fetches LKL, compiles kbox + guest/stress bins, builds rootfs
-#   integration    -- needs build-kbox artifacts, runs integration + stress tests
+# Parallelism (5 independent jobs, 1 sequential):
+#   commit-hygiene  -- Change-Id + subject format (needs full history)
+#   lint            -- clang-format, newline, security, cppcheck (one apt install)
+#   unit-tests      -- no LKL dependency, ASAN/UBSAN
+#   build-kbox      -- fetches LKL, compiles kbox + guest/stress bins, builds rootfs
+#   oci-image-import -- pulls nginx:alpine via mkrootfs.sh --image, validates the
+#                       libext2fs-based ownership rewrite
+#   integration     -- needs build-kbox artifacts, runs integration + stress tests
 #
-# commit-hygiene, lint, unit-tests, and build-kbox run in parallel.
-# integration-tests waits for build-kbox only.
+# All independent jobs run in parallel. integration-tests waits for build-kbox only.
 name: Build and Test
 
 on:
@@ -145,6 +146,77 @@ jobs:
             tests/guest/*-test
             tests/stress/*
             !tests/stress/*.c
+
+  # ---- OCI image import: pull nginx:alpine, validate ownership rewrite ----
+  # Exercises scripts/oci-pull.py + tools/oci-chown end-to-end. nginx:alpine
+  # has multi-layer pulls and a /etc/passwd entry for "nginx" (uid=101) even
+  # though its tar headers are 0:0; the rewrite must restore the on-disk
+  # owner to 0 (vs the invoking user's UID that mke2fs -d would inherit).
+  oci-image-import:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Cache apt packages
+        uses: actions/cache@v5
+        with:
+          path: ~/apt-cache
+          key: apt-oci-${{ runner.os }}-${{ hashFiles('.github/workflows/build-kbox.yml') }}
+      - name: Install dependencies
+        run: |
+          mkdir -p ~/apt-cache
+          sudo apt-get update
+          sudo apt-get install -y -o Dir::Cache::Archives=$HOME/apt-cache \
+            e2fsprogs libext2fs-dev
+
+      - name: Build oci-chown helper
+        run: make -C tools/oci-chown
+
+      - name: Pull nginx:alpine with --rewrite-uid
+        run: |
+          # pipefail: don't let `tee` mask a mkrootfs.sh failure.
+          # nounset: catch any typo'd $VAR before it silently expands to "".
+          set -euo pipefail
+          ROOTFS=/tmp/nginx-oci.ext4 ./scripts/mkrootfs.sh \
+            --image=docker://nginx:alpine \
+            --rewrite-uid \
+            256 2>&1 | tee /tmp/mkrootfs.log
+
+          # Helper must report at least one inode rewrite; without it the
+          # mke2fs-inherited invoking-user UID would silently leak through.
+          if ! grep -qE "rewrote [1-9][0-9]* inode" /tmp/mkrootfs.log; then
+            echo "::error::oci-chown reported no inode rewrites"
+            exit 1
+          fi
+
+      - name: Verify ownership round-trip
+        run: |
+          # /etc/nginx/nginx.conf is a stable file in nginx:alpine. Its tar
+          # header is uid=0/gid=0, so a successful rewrite ends at User=0.
+          # Without --rewrite-uid the inode would carry the runner's UID.
+          # debugfs format: "User:     N   Group:     M   Project:     P ..."
+          STAT=$(printf "stat /etc/nginx/nginx.conf\n" \
+            | debugfs /tmp/nginx-oci.ext4 2>/dev/null \
+            | awk '/^User:/ {print $2 " " $4; exit}')
+          OWNER=$(echo "$STAT" | awk '{print $1}')
+          GROUP=$(echo "$STAT" | awk '{print $2}')
+          echo "/etc/nginx/nginx.conf User=$OWNER Group=$GROUP"
+          if [ "$OWNER" != "0" ] || [ "$GROUP" != "0" ]; then
+            echo "::error::expected User=0/Group=0, got User=$OWNER/Group=$GROUP"
+            exit 1
+          fi
+
+          # Mode bits must survive the rewrite. /usr/sbin/nginx is +x (mode 0755).
+          MODE=$(printf "stat /usr/sbin/nginx\n" \
+            | debugfs /tmp/nginx-oci.ext4 2>/dev/null \
+            | awk '/^Inode:/ {for (i=1;i<=NF;i++) if ($i=="Mode:") print $(i+1); exit}')
+          echo "/usr/sbin/nginx Mode=$MODE"
+          if [ "$MODE" != "0755" ]; then
+            echo "::error::expected /usr/sbin/nginx mode 0755, got $MODE"
+            exit 1
+          fi
 
   # ---- Integration + stress tests: needs kbox binary + rootfs ----
   integration-tests:
