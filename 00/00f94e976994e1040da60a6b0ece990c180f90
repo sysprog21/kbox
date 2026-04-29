@@ -1,0 +1,64 @@
+docs/oci-image-import.md
+  cf10d70eb34e9031 1-194
+scripts/mkrootfs.sh
+  cf10d70eb34e9031 3-4,6-7,11-12,20-60,88,90-113,115,117-119,180-194
+tools/oci-chown/oci-chown.c
+  cf10d70eb34e9031 1-12,14-137,145-222
+  657f5560abc67fd8 13,138-144
+tools/oci-chown/Makefile
+  cf10d70eb34e9031 1-30
+scripts/oci-pull.py
+  657f5560abc67fd8 28,353-363,430-431,506,564-567,587
+  cf10d70eb34e9031 1-24,26-27,29-290,292-297,304-316,326-350,364-373,385-429,432-453,455-465,467-470,473-494,496-502,504-505,507-563,568-586,588-672
+  cc62ed039ac49071 25,291,298-303,317-325,351-352,374-384,454,466,471-472,495,503
+.github/workflows/build-kbox.yml
+  cf10d70eb34e9031 4-11,13,150-217
+README.md
+  cf10d70eb34e9031 185-202,250
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "0000f94e976994e1040da60a6b0ece990c180f90",
+  "prompts": {
+    "657f5560abc67fd8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dd835-f67e-7602-a777-32a5793ee7a0",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Jim Huang",
+      "messages": [],
+      "total_additions": 28,
+      "total_deletions": 4,
+      "accepted_lines": 28,
+      "overriden_lines": 0
+    },
+    "cc62ed039ac49071": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dd815-59e2-73e2-b0b7-f4766ecfcc98",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Jim Huang",
+      "messages": [],
+      "total_additions": 61,
+      "total_deletions": 17,
+      "accepted_lines": 36,
+      "overriden_lines": 0
+    },
+    "cf10d70eb34e9031": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7642676f-a968-42fb-aba8-069c1a62caac",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Jim Huang",
+      "messages": [],
+      "total_additions": 1587,
+      "total_deletions": 175,
+      "accepted_lines": 2086,
+      "overriden_lines": 0
+    }
+  }
+}
