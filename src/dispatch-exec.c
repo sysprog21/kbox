@@ -118,10 +118,10 @@ struct kbox_dispatch forward_mmap(const struct kbox_syscall_request *req,
             if ((mmap_flags & MAP_SHARED) && (mmap_prot & PROT_WRITE))
                 return kbox_dispatch_errno(ENODEV);
 
-            int memfd = kbox_shadow_create(ctx->sysnrs, lkl_fd);
+            int memfd = kbox_shadow_create_cached(ctx->sysnrs, lkl_fd);
             if (memfd < 0)
                 return kbox_dispatch_errno(ENODEV);
-            kbox_shadow_seal(memfd);
+            /* kbox_shadow_create_cached() returns a sealed fd. */
             int injected = request_addfd_at(ctx, req, memfd, (int) fd, 0);
             if (injected < 0) {
                 close(memfd);
@@ -542,7 +542,7 @@ static struct kbox_dispatch trap_userspace_exec(
                 goto fail_early;
             }
 
-            interp_memfd = kbox_shadow_create(ctx->sysnrs, interp_lkl);
+            interp_memfd = kbox_shadow_create_cached(ctx->sysnrs, interp_lkl);
             lkl_close_and_invalidate(ctx, interp_lkl);
 
             if (interp_memfd < 0) {
@@ -872,7 +872,8 @@ struct kbox_dispatch forward_execve(const struct kbox_syscall_request *req,
                     return kbox_dispatch_errno((int) (-interp_lkl));
                 }
 
-                int interp_memfd = kbox_shadow_create(ctx->sysnrs, interp_lkl);
+                int interp_memfd =
+                    kbox_shadow_create_cached(ctx->sysnrs, interp_lkl);
                 lkl_close_and_invalidate(ctx, interp_lkl);
 
                 if (interp_memfd < 0) {
