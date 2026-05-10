@@ -330,7 +330,7 @@ expect_success "umask-test" \
 echo ""
 echo "--- Guest test programs ---"
 
-for test_prog in dup-test clock-test signal-test signal-safety-test path-escape-test errno-test; do
+for test_prog in dup-test clock-test signal-test signal-safety-test path-escape-test errno-test sendfile-test; do
     if guest_has_test "$test_prog"; then
         expect_success "$test_prog" \
             "$KBOX" -S "$ROOTFS" -- "/opt/tests/${test_prog}"

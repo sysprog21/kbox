@@ -2423,6 +2423,17 @@ static struct kbox_dispatch forward_sendfile(
         if (vfd >= 0)
             out_lkl = kbox_fd_table_get_lkl(ctx->fd_table, vfd);
     }
+    /* If out_fd carries a writeback shadow, direct writes must go to
+     * shadow_sp so that the close-time sync sees the new data.
+     */
+    int out_shadow_sp = -1;
+    {
+        struct kbox_fd_entry *out_entry = fd_table_entry(ctx->fd_table, out_fd);
+        if (out_entry && out_entry->shadow_writeback &&
+            out_entry->shadow_sp >= 0)
+            out_shadow_sp = out_entry->shadow_sp;
+    }
+
 
     /* Both FDs have no LKL backing: the host kernel handles sendfile
      * if both are known host FDs. Deny if either is in a denied range.
@@ -2494,7 +2505,17 @@ static struct kbox_dispatch forward_sendfile(
         /* Write to destination, looping on short writes. */
         size_t written = 0;
         while (written < n) {
-            if (out_lkl >= 0) {
+            if (out_shadow_sp >= 0) {
+                ssize_t wr =
+                    write(out_shadow_sp, scratch + written, n - written);
+                if (wr <= 0) {
+                    if (total + written == 0)
+                        return kbox_dispatch_errno(wr < 0 ? errno : EIO);
+                    total += written;
+                    goto done;
+                }
+                written += (size_t) wr;
+            } else if (out_lkl >= 0) {
                 long wr =
                     kbox_lkl_write(ctx->sysnrs, out_lkl, scratch + written,
                                    (long) (n - written));
