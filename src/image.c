@@ -1147,7 +1147,8 @@ int kbox_run_image(const struct kbox_image_args *args)
                         goto err_net;
                     }
 
-                    interp_memfd = kbox_shadow_create(sysnrs, interp_lkl_fd);
+                    interp_memfd =
+                        kbox_shadow_create_cached(sysnrs, interp_lkl_fd);
                     kbox_lkl_close(sysnrs, interp_lkl_fd);
 
                     if (interp_memfd < 0) {

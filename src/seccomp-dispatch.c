@@ -1217,10 +1217,10 @@ int ensure_same_fd_shadow(struct kbox_supervisor_ctx *ctx,
     if (flags < 0 || (flags & O_ACCMODE) != O_RDONLY)
         return 0;
 
-    memfd = kbox_shadow_create(ctx->sysnrs, lkl_fd);
+    memfd = kbox_shadow_create_cached(ctx->sysnrs, lkl_fd);
     if (memfd < 0)
         return -1;
-    kbox_shadow_seal(memfd);
+    /* kbox_shadow_create_cached() returns sealed fds. */
 
     cur_off = (off_t) kbox_lkl_lseek(ctx->sysnrs, lkl_fd, 0, SEEK_CUR);
     if (cur_off >= 0 && lseek(memfd, cur_off, SEEK_SET) < 0) {
@@ -1451,6 +1451,7 @@ void invalidate_path_shadow_cache(struct kbox_supervisor_ctx *ctx)
         ctx->path_shadow_cache[i].memfd = -1;
     }
     invalidate_translated_path_cache(ctx);
+    kbox_shadow_cache_reset();
 }
 
 static struct kbox_path_shadow_cache_entry *find_path_shadow_cache(
