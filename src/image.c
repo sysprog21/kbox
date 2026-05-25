@@ -950,6 +950,9 @@ int kbox_run_image(const struct kbox_image_args *args)
         if (kbox_apply_guest_identity(sysnrs, root_id, override_uid,
                                       override_gid) < 0)
             goto err_post_boot;
+
+        if (root_id || override_uid == 0)
+            setenv("HOME", "/root", 1);
     }
 
     /* Probe host features.  Rewrite mode skips seccomp-specific probes. */
