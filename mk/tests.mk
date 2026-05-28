@@ -5,6 +5,7 @@
 TEST_DIR   = tests/unit
 TEST_SRCS  = $(TEST_DIR)/test-runner.c \
              $(TEST_DIR)/test-fd-table.c \
+			 $(TEST_DIR)/test-fd-table-refcount.c \
              $(TEST_DIR)/test-path.c \
              $(TEST_DIR)/test-mount.c \
              $(TEST_DIR)/test-cli.c \
@@ -55,6 +56,7 @@ TEST_SUPPORT_SRCS += $(SRC_DIR)/rewrite.c \
 endif
 
 TEST_TARGET  = tests/unit/test-runner
+PERF_TARGET  = tests/unit/test-perf
 
 # Guest test programs (compiled statically, run inside kbox)
 GUEST_DIR    = tests/guest
@@ -71,7 +73,7 @@ ROOTFS       = alpine.ext4
 
 # ---- Test targets ----
 
-check: check-unit check-integration check-stress
+check: check-unit check-perf check-integration check-stress
 
 check-unit: $(TEST_TARGET)
 	@echo "  RUN     check-unit"
@@ -84,6 +86,19 @@ TEST_LDFLAGS = $(filter-out -L$(LKL_DIR) -L$(LKL_DIR)/lib,$(LDFLAGS))
 $(TEST_TARGET): $(TEST_SRCS) $(TEST_SUPPORT_SRCS) $(wildcard .config)
 	@echo "  LD      $@"
 	$(Q)$(CC) $(CFLAGS) -DKBOX_UNIT_TEST -o $@ $(TEST_SRCS) $(TEST_SUPPORT_SRCS) $(TEST_LDFLAGS) -lpthread
+
+check-perf: $(PERF_TARGET)
+	@echo "  RUN     check-perf"
+	$(Q)./$(PERF_TARGET)
+
+# Perf-test binary: strip debug/sanitizer flags from CFLAGS, force -O2.
+PERF_TEST_CFLAGS  := $(filter-out -O0 -O1 -O3 -g -g3 -fsanitize% -fno-omit-frame-pointer,$(CFLAGS)) \
+                     -Wno-unused-function -O2 -DKBOX_UNIT_TEST -DKBOX_PERF_TESTS -DKBOX_PERF_ONLY
+PERF_TEST_LDFLAGS := $(filter-out -L$(LKL_DIR) -L$(LKL_DIR)/lib -fsanitize%,$(LDFLAGS))
+
+$(PERF_TARGET): $(TEST_SRCS) $(TEST_SUPPORT_SRCS) $(wildcard .config)
+	@echo "  LD      $@"
+	$(Q)$(CC) $(PERF_TEST_CFLAGS) -o $@ $(TEST_SRCS) $(TEST_SUPPORT_SRCS) $(PERF_TEST_LDFLAGS) -lpthread
 
 check-integration: $(TARGET) guest-bins stress-bins $(ROOTFS)
 	@echo "  RUN     check-integration"
@@ -163,4 +178,4 @@ check-commitlog:
 	@echo "  RUN     check-commitlog"
 	$(Q)scripts/check-commitlog.sh
 
-.PHONY: check check-unit check-integration check-stress check-commitlog guest-bins stress-bins rootfs check-syntax
+.PHONY: check check-unit check-perf check-integration check-stress check-commitlog guest-bins stress-bins rootfs check-syntax

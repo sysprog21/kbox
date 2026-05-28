@@ -66,6 +66,10 @@ struct kbox_fd_table {
      * kbox_fd_table_find_by_host_fd() on the close() hot path.
      */
     int32_t host_to_vfd[KBOX_HOST_FD_REVERSE_MAX];
+    /* Tracks how many VFDs point to a specific Host FD.
+     * This allows us to know when to downgrade from MULTI.
+     */
+    uint16_t host_fd_refs[KBOX_HOST_FD_REVERSE_MAX];
     /* Refcount: how many virtual fds currently reference each
      * lkl_fd. Replaces the O(n) lkl_fd_has_other_ref scan and the
      * still_ref loop in forward_close.

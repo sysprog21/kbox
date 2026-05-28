@@ -77,6 +77,11 @@ void test_pass(void);
     } while (0)
 #endif
 
+#ifdef KBOX_PERF_ONLY
+#define TEST_REGISTER(fn) ((void) 0)
+#define PERF_REGISTER(fn) test_register(#fn, fn)
+#else
 #define TEST_REGISTER(fn) test_register(#fn, fn)
+#endif
 
 #endif /* TEST_RUNNER_H */

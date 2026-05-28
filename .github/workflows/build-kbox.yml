@@ -91,6 +91,16 @@ jobs:
       - name: Run unit tests (ASAN/UBSAN)
         run: make check-unit
 
+  # ---- Perf tests: no sanitizers, only perf benchmarks ----
+  perf-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Run perf tests
+        run: make check-perf
+
   # ---- Build kbox + prepare rootfs ----
   build-kbox:
     runs-on: ubuntu-24.04

@@ -5,6 +5,7 @@ __pycache__
 *.ext4
 /kbox
 tests/unit/test-runner
+tests/unit/test-perf
 deps/
 lkl-x86_64/
 lkl-aarch64/
