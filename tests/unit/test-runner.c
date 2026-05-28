@@ -90,6 +90,7 @@ void test_pass(void)
 /* External init functions from each test file */
 /* Portable test suites (all hosts) */
 extern void test_fd_table_init(void);
+extern void test_fd_table_refcount_init(void);
 extern void test_path_init(void);
 extern void test_mount_init(void);
 extern void test_cli_init(void);
@@ -120,6 +121,7 @@ int main(int argc, char *argv[])
 
     /* Portable suites */
     test_fd_table_init();
+    test_fd_table_refcount_init();
     test_path_init();
     test_mount_init();
     test_cli_init();

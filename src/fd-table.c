@@ -101,6 +101,8 @@ static inline void rev_host_set(struct kbox_fd_table *t, long host_fd, long vfd)
 
     if (host_fd < 0 || (uint64_t) host_fd >= KBOX_HOST_FD_REVERSE_MAX)
         return;
+
+    t->host_fd_refs[host_fd]++;
     cur = t->host_to_vfd[host_fd];
     if (cur == KBOX_HOST_VFD_NONE || cur == (int32_t) vfd) {
         t->host_to_vfd[host_fd] = (int32_t) vfd;
@@ -116,7 +118,8 @@ static inline void rev_host_clear(struct kbox_fd_table *t,
                                   long host_fd,
                                   long vfd)
 {
-    if (host_fd < 0 || (uint64_t) host_fd >= KBOX_HOST_FD_REVERSE_MAX)
+    if (host_fd < 0 || (uint64_t) host_fd >= KBOX_HOST_FD_REVERSE_MAX ||
+        t->host_fd_refs[host_fd] == 0)
         return;
     /* Only the single-holder case can be cleared authoritatively. If
      * the slot is MULTI, leave it: we cannot prove this is the last
@@ -124,10 +127,26 @@ static inline void rev_host_clear(struct kbox_fd_table *t,
      * lookups correctly. If the slot is NONE or claims a different
      * vfd, we were not the indexed holder; nothing to do.
      */
-    if (t->host_to_vfd[host_fd] == (int32_t) vfd)
-        t->host_to_vfd[host_fd] = KBOX_HOST_VFD_NONE;
-}
 
+    t->host_fd_refs[host_fd]--;
+    if (t->host_fd_refs[host_fd] == 0) {
+        t->host_to_vfd[host_fd] = KBOX_HOST_VFD_NONE;
+    } else if (t->host_fd_refs[host_fd] == 1) {
+        /* 1. Try a normal search first */
+        long cur_vfd = kbox_fd_table_find_by_host_fd(t, host_fd);
+
+        /* 2. If the search tripped over the dying slot, hide it and search
+         * again */
+        if (cur_vfd == vfd) {
+            struct kbox_fd_entry *e = fd_lookup(t, vfd);
+            e->host_fd = -1;
+            cur_vfd = kbox_fd_table_find_by_host_fd(t, host_fd);
+            e->host_fd = host_fd;
+        }
+
+        t->host_to_vfd[host_fd] = cur_vfd;
+    }
+}
 static inline void lkl_ref_inc(struct kbox_fd_table *t, long lkl_fd)
 {
     if (lkl_fd >= 0 && (uint64_t) lkl_fd < KBOX_LKL_FD_REFMAX &&
@@ -154,8 +173,10 @@ void kbox_fd_table_init(struct kbox_fd_table *t)
         clear_fd_entry(&t->low_fds[i]);
     for (i = 0; i < KBOX_MID_FD_MAX; i++)
         clear_fd_entry(&t->mid_fds[i]);
-    for (i = 0; i < KBOX_HOST_FD_REVERSE_MAX; i++)
+    for (i = 0; i < KBOX_HOST_FD_REVERSE_MAX; i++) {
         t->host_to_vfd[i] = KBOX_HOST_VFD_NONE;
+        t->host_fd_refs[i] = 0;
+    }
     for (i = 0; i < KBOX_LKL_FD_REFMAX; i++)
         t->lkl_fd_refs[i] = 0;
     t->next_fd = KBOX_FD_BASE;

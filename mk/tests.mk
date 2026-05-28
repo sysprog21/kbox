@@ -5,6 +5,7 @@
 TEST_DIR   = tests/unit
 TEST_SRCS  = $(TEST_DIR)/test-runner.c \
              $(TEST_DIR)/test-fd-table.c \
+			 $(TEST_DIR)/test-fd-table-refcount.c \
              $(TEST_DIR)/test-path.c \
              $(TEST_DIR)/test-mount.c \
              $(TEST_DIR)/test-cli.c \
