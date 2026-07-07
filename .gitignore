@@ -23,3 +23,6 @@ tests/stress/signal-race
 !tests/stress/*.c
 build/lkl-src
 src/web-assets.c
+trace.pftrace
+trace-graph/
+*.pftrace

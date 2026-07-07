@@ -20,6 +20,11 @@ enum {
     OPT_WEB_BIND,
     OPT_SYSCALL_MODE,
     OPT_TRACE_FORMAT,
+    OPT_FTRACE,
+    OPT_FTRACE_FILTER,
+    OPT_FTRACE_DUMP,
+    OPT_FTRACE_EVENTS,
+    OPT_FTRACE_OUTDIR,
     OPT_SQPOLL,
     OPT_HELP,
 };
@@ -46,6 +51,11 @@ static const struct option longopts[] = {
     {"syscall-mode", required_argument, NULL, OPT_SYSCALL_MODE},
     {"sqpoll", no_argument, NULL, OPT_SQPOLL},
     {"trace-format", required_argument, NULL, OPT_TRACE_FORMAT},
+    {"ftrace", required_argument, NULL, OPT_FTRACE},
+    {"ftrace-filter", required_argument, NULL, OPT_FTRACE_FILTER},
+    {"ftrace-dump", required_argument, NULL, OPT_FTRACE_DUMP},
+    {"ftrace-events", required_argument, NULL, OPT_FTRACE_EVENTS},
+    {"ftrace-outdir", required_argument, NULL, OPT_FTRACE_OUTDIR},
     {"help", no_argument, NULL, OPT_HELP},
     {NULL, 0, NULL, 0},
 };
@@ -85,6 +95,14 @@ void kbox_usage(const char *argv0)
         "      --web-bind ADDR        Bind address for web (default: "
         "127.0.0.1)\n"
         "      --trace-format FMT     Trace output format (json)\n"
+        "      --ftrace=TRACER        Enable LKL ftrace "
+        "(function/function_graph)\n"
+        "      --ftrace-filter=SYM    Restrict ftrace to symbol SYM\n"
+        "      --ftrace-dump=PATH     Dump LKL trace to host file PATH\n"
+        "      --ftrace-events=LIST   Enable tracepoints cat/ev,... (event "
+        "mode)\n"
+        "      --ftrace-outdir=DIR    Event-mode output dir (ftrace.log + "
+        "start_ts)\n"
         "  -h, --help                 Show this help\n",
         argv0);
 }
@@ -260,6 +278,21 @@ int kbox_parse_args(int argc, char *argv[], struct kbox_image_args *img)
             }
             break;
         case 'h':
+        case OPT_FTRACE:
+            img->ftrace_tracer = optarg;
+            break;
+        case OPT_FTRACE_FILTER:
+            img->ftrace_filter = optarg;
+            break;
+        case OPT_FTRACE_DUMP:
+            img->ftrace_dump = optarg;
+            break;
+        case OPT_FTRACE_EVENTS:
+            img->ftrace_events = optarg;
+            break;
+        case OPT_FTRACE_OUTDIR:
+            img->ftrace_outdir = optarg;
+            break;
         case OPT_HELP:
             kbox_usage(argv[0]);
             return -1;
