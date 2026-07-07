@@ -21,6 +21,7 @@
 #include "fd-table.h"
 #include "kbox/compiler.h"
 #include "kbox/elf.h"
+#include "kbox/ftrace.h"
 #include "kbox/identity.h"
 #include "kbox/image.h"
 #include "kbox/mount.h"
@@ -952,6 +953,9 @@ int kbox_run_image(const struct kbox_image_args *args)
             goto err_post_boot;
     }
 
+    if (kbox_ftrace_enable(sysnrs, args) < 0)
+        goto err_post_boot;
+
     /* Probe host features.  Rewrite mode skips seccomp-specific probes. */
     if (kbox_probe_host_features(probe_mode) < 0)
         goto err_post_boot;
@@ -1533,6 +1537,7 @@ int kbox_run_image(const struct kbox_image_args *args)
         close(exec_memfd);
 
     err_net:
+        kbox_ftrace_dump(sysnrs, args);
         kbox_halt_kernel();
 #ifdef KBOX_HAS_WEB
         if (web_ctx)

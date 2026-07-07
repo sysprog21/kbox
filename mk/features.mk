@@ -28,6 +28,7 @@ SRCS     = $(SRC_DIR)/main.c \
            $(SRC_DIR)/mount.c \
            $(SRC_DIR)/probe.c \
            $(SRC_DIR)/image.c \
+           $(SRC_DIR)/ftrace.c \
            $(SRC_DIR)/seccomp-bpf.c \
            $(SRC_DIR)/seccomp-notify.c \
            $(SRC_DIR)/shadow-fd.c \

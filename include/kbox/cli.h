@@ -42,6 +42,11 @@ struct kbox_image_args {
     int web_port;                          /* --web=PORT (default 8080) */
     const char *web_bind;                  /* --web-bind ADDR */
     const char *trace_format;              /* --trace-format=json */
+    const char *ftrace_tracer;             /* --ftrace=TRACER */
+    const char *ftrace_filter;             /* --ftrace-filter=SYM */
+    const char *ftrace_dump;               /* --ftrace-dump=PATH */
+    const char *ftrace_events;             /* --ftrace-events=cat/ev,... */
+    const char *ftrace_outdir;             /* --ftrace-outdir=DIR */
     bool sqpoll;                   /* --sqpoll: busy-poll service thread */
     const char *const *extra_args; /* remaining args after -- */
     int extra_argc;                /* count of extra_args */
